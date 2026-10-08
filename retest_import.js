@@ -7,12 +7,12 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'app', 'index.html');
-const URL = 'file:///' + INDEX.split(path.sep).join('/');
+const URL = fileUrl(INDEX);
 // 第四轮 R4-L4：从 core.js 动态取 PLAN_VERSION，夹具不再硬编码 v:3（旧版本号会被 ensurePlan 丢弃重算导致假失败）
 const PLANV_N = parseInt((fs.readFileSync(path.join(ROOT, 'app', 'core.js'), 'utf8').match(/CORE\.PLAN_VERSION\s*=\s*(\d+)/) || [])[1], 10);
 if (!PLANV_N) { throw new Error('无法从 core.js 解析 PLAN_VERSION'); }

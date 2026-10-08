@@ -2,11 +2,11 @@
 /* 最小探针：定位「点击 #exportBtn / #wrongCsvBtn 无 download 事件」的原因（脚本问题 or 应用缺陷） */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
 const { chromium } = loadChromium();
 const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'app', 'index.html');
-const URL = 'file:///' + INDEX.split(path.sep).join('/');
+const URL = fileUrl(INDEX);
 const pad = n => (n < 10 ? '0' + n : '' + n);
 const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());

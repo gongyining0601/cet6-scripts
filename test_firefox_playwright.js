@@ -3,11 +3,15 @@
 // 本脚本改用 playwright 官方 Firefox 构建（firefox-1543）做真实兼容性验证。
 // 运行：$env:NODE_PATH='<workspace>\pw-ff\node_modules'; node test_firefox_playwright.js
 const path = require('path');
+const { pathToFileURL } = require('url');
 let playwright = null;
 try { playwright = require('playwright'); } catch (e) { console.log('PLAYWRIGHT_MISSING: ' + e.message); process.exit(2); }
 
-const URL = 'file:///D:/CET6/app/index.html';
-const DOCS = 'D:\\CET6\\docs';
+// 2026-10-08：原来是写死的 'file:///D:/CET6/app/index.html' 与 'D:\\CET6\\docs'，
+// 换台机器或上 CI 必然指向不存在的盘符。改成按脚本位置推导。
+const ROOT = path.join(__dirname, '..');
+const URL = pathToFileURL(path.join(ROOT, 'app', 'index.html')).href;
+const DOCS = path.join(ROOT, 'docs');
 
 (async () => {
   const out = { engine: 'firefox', build: null };

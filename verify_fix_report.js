@@ -13,13 +13,13 @@
    ========================================================================== */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, ensurePaper } = require('./_env.js');
+const { chromium: loadChromium, EXE, fileUrl, ensurePaper } = require('./_env.js');
 const chromium = loadChromium().chromium;
 
 const ROOT = path.join(__dirname, '..');
 const DOCS = path.join(ROOT, 'docs');
 const APP = path.join(ROOT, 'app');
-const URL = 'file:///' + path.join(APP, 'index.html').split(path.sep).join('/');
+const URL = fileUrl(path.join(APP, 'index.html'));
 
 if (!fs.existsSync(DOCS)) fs.mkdirSync(DOCS, { recursive: true });
 

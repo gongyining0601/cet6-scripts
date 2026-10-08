@@ -15,12 +15,12 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { chromium: loadChromium, EXE } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
 const { chromium } = loadChromium();
 const ROOT = path.join(__dirname, '..');
 const DOCS = path.join(ROOT, 'docs');
 const APP = path.join(ROOT, 'app', 'index.html');
-const URL = 'file:///' + APP.replace(/\\/g, '/');
+const URL = fileUrl(APP);
 const ARGS = ['--no-sandbox', '--disable-dev-shm-usage'];
 
 const R = { ts: new Date().toISOString(), checks: [], fatal: null };
