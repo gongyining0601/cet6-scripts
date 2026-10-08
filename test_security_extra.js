@@ -10,13 +10,13 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, ensurePaper } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl, ensurePaper } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app');
 const INDEX = path.join(APP, 'index.html');
-const URL = 'file:///' + INDEX.split(path.sep).join('/');
+const URL = fileUrl(INDEX);
 const DOCS = path.join(ROOT, 'docs');
 
 const LINES = [];

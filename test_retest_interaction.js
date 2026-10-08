@@ -7,11 +7,11 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { chromium: loadPW, EXE, ensurePaper } = require('./_env');
+const { chromium: loadPW, EXE, fileUrl, ensurePaper } = require('./_env');
 
 const ROOT = path.join(__dirname, '..', 'app');
 const DOCS = path.join(__dirname, '..', 'docs');
-const URL = 'file:///' + path.join(ROOT, 'index.html').replace(/\\/g, '/');
+const URL = fileUrl(path.join(ROOT, 'index.html'));
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const FIREFOX = 'C:\\Program Files\\Mozilla Firefox\\firefox.exe';
 const ARGS = ['--no-sandbox', '--disable-dev-shm-usage'];

@@ -4,6 +4,18 @@
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
+const { pathToFileURL } = require('url');
+
+/* ---------- file:// URL 构造（跨平台，2026-10-08 抽出来统一） ----------
+   坑：以前每个用例各自写 'file:///' + 路径。
+     · Windows：路径是 D:\CET6\app\index.html，拼出 file:///D:/... —— 对的；
+     · Linux  ：路径本身以 / 开头（/home/runner/...），同样的拼法会变成
+                file:////home/...（四道斜杠），浏览器直接打不开页面。
+   CI 是 Linux，所以这个坑会让所有 file:// 用例在 CI 上必然失败。
+   用标准库的 pathToFileURL 一劳永逸，两边都正确。 */
+function fileUrl(p) {
+  return pathToFileURL(p).href;
+}
 
 function chromium() {
   const cands = [
@@ -15,14 +27,41 @@ function chromium() {
   throw new Error('playwright-core not found；请先在本目录执行 npm install playwright-core');
 }
 
-// 本机浏览器探测：Edge / Chrome / 备用环境变量
-const EXE = [
-  process.env.CET6_BROWSER,
-  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-].find((p) => p && fs.existsSync(p)) || null;
+/* ---------- 浏览器探测（2026-10-08 补 Linux 分支） ----------
+   原来只列了 Windows 上 Edge/Chrome 的绝对路径，Linux runner 上一个都不存在，
+   EXE 会变成 null，浏览器起不来。现在分三级：
+     1) 环境变量（CET6_BROWSER 优先，其次 CI 常见的 CHROME_BIN）
+     2) 系统浏览器（Windows 的 Edge/Chrome + Linux 的常见路径）
+     3) playwright 自带的 chromium（CI 上由 npx playwright install 下载）
+   三级都找不到时返回 undefined（不能是 null）：让调用方把它当"未指定"，
+   playwright 才会回退到它自己注册的浏览器。 */
+const EXE = (function () {
+  const cands = [
+    process.env.CET6_BROWSER,
+    process.env.CHROME_BIN,
+    // Windows
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    // Linux（GitHub Actions runner / 常见发行版）
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+  ].filter(Boolean);
+
+  const hit = cands.find((p) => fs.existsSync(p));
+  if (hit) return hit;
+
+  // 回退 playwright 自带 chromium
+  try {
+    const p = chromium().chromium.executablePath();
+    if (p && fs.existsSync(p)) return p;
+  } catch (e) { /* playwright-core 没装或没下载浏览器，交给下一级 */ }
+
+  return undefined;
+})();
 
 /* ---------- 按需加载架构下的"题库就绪"辅助 ----------
    2026-10 起应用改为「meta 骨架 + 按需加载卷」：首屏 window.CET6_BANKS 是空数组，
@@ -107,4 +146,4 @@ function bankDigest(prefix) {
   return out;
 }
 
-module.exports = { chromium, EXE, ensurePaper, ensureAllPapers, bankDigest };
+module.exports = { chromium, EXE, fileUrl, ensurePaper, ensureAllPapers, bankDigest };

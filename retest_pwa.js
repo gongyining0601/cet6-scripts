@@ -13,7 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { chromium: loadChromium, EXE } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
@@ -90,7 +90,7 @@ function pngSize(p) {
       const cons = [], pe = [];
       page.on('console', m => cons.push({ type: m.type(), text: m.text() }));
       page.on('pageerror', e => pe.push(String(e.message || e)));
-      const URLF = 'file:///' + INDEX.split(path.sep).join('/');
+      const URLF = fileUrl(INDEX);
       await page.goto(URLF, { waitUntil: 'load' });
       await page.waitForSelector('#loginMask, #planList .card', { timeout: 30000 });
       await page.waitForTimeout(1500);
