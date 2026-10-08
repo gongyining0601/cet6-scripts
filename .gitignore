@@ -1,0 +1,6 @@
+# 本地安装的依赖，约 15MB，绝不入库
+node_modules/
+
+# 本地生成的自签 HTTPS 证书，含私钥 key.pem，绝不入库
+# 换机器或删掉后，用同目录的 gen_certs.js 重新生成即可
+certs/
