@@ -2,11 +2,12 @@
 const path = require('path');
 const https = require('https');
 const fs = require('fs');
-const { chromium: loadChromium, EXE } = require('./_env');
+const { chromium: loadChromium, EXE, ensureCerts } = require('./_env');
 const { chromium } = loadChromium();
+const { key: KEY, cert: CERT } = ensureCerts();
 const ROOT = path.join(__dirname, '..', 'app');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg' };
-const server = https.createServer({ key: fs.readFileSync(path.join(__dirname, 'certs', 'key.pem')), cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem')) }, (req, res) => {
+const server = https.createServer({ key: fs.readFileSync(KEY), cert: fs.readFileSync(CERT) }, (req, res) => {
   let p = req.url.split('?')[0];
   if (p === '/') p = '/index.html';
   const f = path.join(ROOT, p);

@@ -275,13 +275,23 @@ log('\n=== 8) streak / heatmap / 遗忘曲线 ===');
 /* ------------------------------------------------------------------ 9. esc 等价性（index.html 内联实现复刻） */
 log('\n=== 9) esc() 覆盖范围（与 index.html:440 同实现，验证属性上下文安全性）===');
 {
-  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // B1：从生产源码 index.html 提取 esc 真身并求值，杜绝"测副本"。
+  const htmlSrc = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const em = htmlSrc.match(/function\s+esc\s*\([^)]*\)\s*\{[^\n]*\}/);
+  let esc;
+  if (!em) { t('esc 定义能从 index.html 提取', 'esc', false, '未匹配到 function esc'); }
+  else {
+    try { esc = eval(em[0] + '; esc'); }
+    catch (e) { t('esc 定义可求值', 'esc', false, String(e)); }
+  }
+  if (!esc) { /* skip */ } else {
   t('esc 转义 & < > "', 'esc', esc('&<>"') === '&amp;&lt;&gt;&quot;', esc('&<>"'));
-  t("esc 不转义单引号（所有属性都用双引号包裹才安全）", 'esc', esc("'") === "'", esc("'"));
+  t("esc 转义单引号为 &#39;（与 index.html:536 真身一致）", 'esc', esc("'") === '&#39;', esc("'"));
   t('esc 处理 null/undefined/number', 'esc', esc(null) === '' && esc(undefined) === '' && esc(5) === '5', '');
   const sq = "'><img src=x onerror=alert(1)>";
   const attr = '<div data-x="' + esc(sq) + '">';
   t('双引号属性 + esc 后无法逃逸（无裸 > 出现在属性内）', 'esc', !/data-x="[^"]*"[^>]*<img/.test(attr), attr.slice(0, 80));
+  }
 }
 
 /* ------------------------------------------------------------------ 10. 幽灵 qid（core 不做题库校验） */
@@ -302,7 +312,9 @@ log(`  断言 ${R.summary.total} 条：通过 ${R.summary.pass}，失败 ${R.sum
 failed.forEach(f => log('   ✗ ' + f.group + ' · ' + f.name + '  → ' + f.detail));
 log(`  中性事实 ${R.facts.length} 条（见 retest-core-result.json）`);
 
-fs.writeFileSync(path.join(DOCS, 'retest-core-result.json'), JSON.stringify(R, null, 2), 'utf8');
-fs.writeFileSync(path.join(DOCS, 'retest-core-log.txt'), LINES.join('\n'), 'utf8');
-log('\n已写出 docs/retest-core-result.json 与 docs/retest-core-log.txt');
+try {
+  fs.writeFileSync(path.join(DOCS, 'retest-core-result.json'), JSON.stringify(R, null, 2), 'utf8');
+  fs.writeFileSync(path.join(DOCS, 'retest-core-log.txt'), LINES.join('\n'), 'utf8');
+  log('\n已写出 docs/retest-core-result.json 与 docs/retest-core-log.txt');
+} catch (e) { log('\n(写结果文件失败，不影响断言结论: ' + e.code + ')'); }
 process.exitCode = failed.length ? 1 : 0;

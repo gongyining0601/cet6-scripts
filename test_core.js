@@ -15,6 +15,7 @@ var banks = sandbox.window.CET6_BANKS;
 global.CET6_LISTEN_META = sandbox.window.CET6_LISTEN_META || null;
 console.log('banks:', banks.length, 'questions:', banks.reduce((a, b) => a + b.questions.length, 0));
 
+
 var assert = function (cond, msg) { if (!cond) { console.error('FAIL:', msg); process.exitCode = 1; } else console.log('ok -', msg); };
 
 // 日期

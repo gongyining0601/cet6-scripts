@@ -146,4 +146,19 @@ function bankDigest(prefix) {
   return out;
 }
 
-module.exports = { chromium, EXE, fileUrl, ensurePaper, ensureAllPapers, bankDigest };
+/* ---------- 离线 HTTPS 证书自举（S2） ----------
+   离线 PWA 测试需要 certs/key.pem + certs/cert.pem。删除 certs/ 目录后重跑应能
+   自动重建，而不是直接抛 ENOENT。缺则调用 gen_certs.js 生成（node-forge 自签）。 */
+const { execSync } = require('child_process');
+function ensureCerts() {
+  const dir = path.join(__dirname, 'certs');
+  const key = path.join(dir, 'key.pem');
+  const cert = path.join(dir, 'cert.pem');
+  if (!fs.existsSync(key) || !fs.existsSync(cert)) {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    execSync(process.execPath + ' ' + JSON.stringify(path.join(__dirname, 'gen_certs.js')), { stdio: 'pipe' });
+  }
+  return { dir, key, cert };
+}
+
+module.exports = { chromium, EXE, fileUrl, ensurePaper, ensureAllPapers, bankDigest, ensureCerts };

@@ -502,7 +502,7 @@ async function partF_blocked(browser) {
     R.nodes_ok = okNode;
     R.allOk = okNode && flat.every(x => x.ok === true) && !!audit && audit.xssExecuted && audit.xssExecuted.length === 0;
 
-    fs.writeFileSync(path.join(DOCS, 'fix-verify-result.json'), JSON.stringify(R, null, 2), 'utf8');
+    try { fs.writeFileSync(path.join(DOCS, 'fix-verify-result.json'), JSON.stringify(R, null, 2), 'utf8'); } catch (e) { log('(写结果文件失败: ' + e.code + ')'); }
     log('\n=========== 汇总 ===========');
     log('A normalizeState( Node )      : ' + (okNode ? 'PASS' : 'FAIL'));
     log('B 脏备份导入 5 类             : ' + dirty.filter(x => x.ok).length + '/' + dirty.length);

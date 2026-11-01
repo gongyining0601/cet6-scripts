@@ -19,6 +19,7 @@
 
    产物：docs/run-all-result.json
    ============================================================================ */
+require('./_io_patch'); // 预加载 writeFileSync 重试补丁（本机 Windows 文件锁）
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -29,6 +30,20 @@ const { spawn } = require('child_process');
 const SCRIPTS = __dirname;
 const ROOT = path.join(__dirname, '..');
 const DOCS = path.join(ROOT, 'docs');
+const METRICS = path.join(DOCS, 'metrics');
+const BASELINE_FILE = path.join(METRICS, 'baseline.json');
+
+/* ------------------------------ 动态断言基线（B4） ------------------------------
+   旧版 min 是写死的常数，远低于实测值（test_core min=20 vs 实测 262 → 容忍 92% 蒸发）。
+   现改为：min = max(写死下限, 基线×0.9)。基线存 docs/metrics/baseline.json，
+   每次全绿运行回写实测值，让"删掉断言"真的能被拦住（容忍度降到 10% 以内）。 */
+let BASELINE = {};
+try { BASELINE = JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8')); } catch (e) { BASELINE = {}; }
+function minFor(t) {
+  const base = Number(BASELINE[t.f]) || 0;
+  if (base > 0) return Math.max(t.min, Math.floor(base * 0.9));
+  return t.min;
+}
 
 /* ---------------------------------------------------------------------------
    清单：只收用例，不收生成器/补丁工具（gen_* / fix_* / *_patch_* / *.py）。
@@ -37,14 +52,20 @@ const DOCS = path.join(ROOT, 'docs');
 const TESTS = [
   /* --- Node 侧：纯逻辑，快 --- */
   { f: 'test_core.js', g: 'core', min: 20, d: 'core.js 纯函数单测' },
+  { f: 'test_journey_logic.js', g: 'core', min: 20, d: '主流程逻辑（memStore+vm，非浏览器）' },
   { f: 'retest_core.js', g: 'core', min: 5, d: '复测轮 · core 边界' },
   { f: 'retest_shape.js', g: 'core', min: 0, kind: 'dump', d: '题库字段形状导出（工具型，无断言）' },
   { f: 'verify_bank.js', g: 'core', min: 5, d: '题库完整性校验' },
   { f: 'verify_fixes.js', g: 'core', min: 5, d: '历史修复回归校验' },
   { f: 'verify_fix_report.js', g: 'core', min: 1, d: '修复报告生成/自检' },
+  { f: 'test_bank_contract.js', g: 'core', min: 20, d: '题库字段契约（逐卷逐题）' },
+  { f: 'test_version_sync.js', g: 'core', min: 3, d: '三方版本号一致性' },
+  { f: 'test_contrast_light.js', g: 'core', min: 3, d: '浅色主题对比度 ≥4.5:1' },
+  { f: 'test_coverage.js', g: 'core', min: 2, d: 'core.js 覆盖率门禁（行/分支 ≥80%，排除 bank）' },
+  { f: 'test_id_isolation.js', g: 'core', min: 3, d: '4 位学习编号隔离风险声明 + 存储键隔离' },
 
   /* --- 浏览器：功能与交互 --- */
-  { f: 'test_e2e.js', g: 'browser', min: 20, d: '端到端主流程' },
+  { f: 'test_e2e_ui.js', g: 'browser', min: 30, d: '真实 E2E（Playwright 驱动 UI：登录→做题→错题→统计→备份→导出导入）' },
   { f: 'test_ui.js', g: 'browser', min: 8, d: 'UI 结构与选择流程' },
   { f: 'test_p3.js', g: 'browser', min: 8, d: 'P3 轮修复点' },
   { f: 'test_p4.js', g: 'browser', min: 8, d: 'P4 轮修复点' },
@@ -70,8 +91,8 @@ const TESTS = [
   { f: 'test_online_p71.js', g: 'net', min: 1, d: '在线 P7-1', opt: 1 },
   { f: 'test_online_p72.js', g: 'net', min: 1, d: '在线 P7-2', opt: 1 },
   { f: 'test_online_p73.js', g: 'net', min: 1, d: '在线 P7-3', opt: 1 },
-  { f: 'test_offline_https.js', g: 'net', min: 1, d: 'HTTPS/离线', opt: 1 },
-  { f: 'test_offline_perf.js', g: 'net', min: 1, d: '离线性能', opt: 1 },
+  { f: 'test_offline_https.js', g: 'net', min: 1, d: 'HTTPS/离线' },
+  { f: 'test_offline_perf.js', g: 'net', min: 1, d: '离线性能' },
   { f: 'test_firefox_playwright.js', g: 'net', min: 1, d: 'Firefox 兼容', opt: 1 },
 
   /* --- 复测轮遗留探针（多为"取证型"脚本，断言少） --- */
@@ -141,7 +162,7 @@ function parse(out) {
 function runOne(t) {
   return new Promise(resolve => {
     const i0 = Date.now();
-    const child = spawn(process.execPath, [t.f], {
+    const child = spawn(process.execPath, ['--require', path.join(SCRIPTS, '_io_patch.js'), t.f], {
       cwd: SCRIPTS,
       env: Object.assign({}, process.env, { NO_COLOR: '1' }),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -184,17 +205,16 @@ function runOne(t) {
     const { ok, fail } = parse(r.out);
     const total = ok + fail;
 
+    const effMin = minFor(t);
     let verdict;
     if (r.timedOut) verdict = 'TIMEOUT';
     else if (r.code === null) verdict = 'CRASH';
     else if (t.kind === 'dump') {
-      // 工具型脚本：本身不做判定，只导出信息。它的价值是"bank 文件坏了就会崩"，
-      // 因此要求退出码 0 且确实产出了内容；不参与断言闸门（否则会冤枉成假绿）。
       verdict = (r.code === 0 && r.out.trim().length >= 200) ? 'DUMP-OK' : 'DUMP-FAIL';
     }
-    else if (total === 0) verdict = 'NO-ASSERT';     // 假绿：跑了但一条都没验
+    else if (total === 0) verdict = 'NO-ASSERT';
     else if (fail > 0) verdict = 'FAIL';
-    else if (total < t.min) verdict = 'SHRUNK';      // 套件缩水
+    else if (total < effMin) verdict = 'SHRUNK';
     else if (r.code !== 0) verdict = 'EXIT' + r.code;
     else verdict = 'PASS';
 
@@ -202,7 +222,7 @@ function runOne(t) {
     rows.push({
       file: t.f, group: t.g, desc: t.d, optional: !!t.opt,
       verdict: verdict, pass: pass,
-      exit: r.code, ms: r.ms, ok, fail, total, min: t.min,
+      exit: r.code, ms: r.ms, ok, fail, total, min: effMin,
       tail: r.out.split(/\r?\n/).filter(l => l.trim()).slice(-8).join(' ⏎ ').slice(0, 800),
     });
     console.log(verdict + '  (' + ok + ' ok / ' + fail + ' fail · ' + (r.ms / 1000).toFixed(1) + 's)');
@@ -226,7 +246,8 @@ function runOne(t) {
   const totalOk = rows.reduce((a, r) => a + r.ok, 0);
   const totalFail = rows.reduce((a, r) => a + r.fail, 0);
   const hard = rows.filter(r => !r.pass && !r.optional);
-  const fake = rows.filter(r => r.verdict === 'NO-ASSERT' || r.verdict === 'SHRUNK');
+  // B4：假绿/缩水判定排除 optional 用例（在线/离线条件性用例失败不应污染假绿计数）
+  const fake = rows.filter(r => !r.optional && (r.verdict === 'NO-ASSERT' || r.verdict === 'SHRUNK'));
   const passed = rows.filter(r => r.pass).length;
 
   console.log('\n================= 总计 =================');
@@ -254,6 +275,14 @@ function runOne(t) {
   if (fake.length) gate.push(fake.length + ' 个用例 0 断言或低于下限却"通过"');
   if (hard.length) gate.push(hard.length + ' 个必过用例未通过');
   if (gate.length) { console.log('\nGATE FAIL: ' + gate.join('；')); process.exit(1); }
+
+  /* B4：全绿运行 → 回写动态基线（用实测值刷新，下次容忍度 = 10%） */
+  try {
+    rows.forEach(r => { if (r.total > 0) BASELINE[r.file] = r.total; });
+    BASELINE._updated = new Date().toISOString();
+    fs.writeFileSync(BASELINE_FILE, JSON.stringify(BASELINE, null, 2), 'utf8');
+  } catch (e) { console.log('  (基线回写失败: ' + e.message + ')'); }
+
   console.log('\nGATE PASS: 全部必过用例通过，且无假绿');
   process.exit(0);
 })();

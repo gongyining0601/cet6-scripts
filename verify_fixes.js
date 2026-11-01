@@ -639,8 +639,10 @@ function listenItem(extra) {
     log('\n================ 汇总 ================');
     log('  检查项 ' + R.cases.length + ' 条；未通过 ' + failed.length);
     failed.forEach(f => log('   ✗ ' + f.group + ' · ' + f.name + ' → ' + f.detail));
-    fs.writeFileSync(path.join(DOCS, 'verify-fixes-result.json'), JSON.stringify(R, null, 2), 'utf8');
-    fs.writeFileSync(path.join(DOCS, 'verify-fixes-log.txt'), LINES.join('\n'), 'utf8');
+    try {
+      fs.writeFileSync(path.join(DOCS, 'verify-fixes-result.json'), JSON.stringify(R, null, 2), 'utf8');
+      fs.writeFileSync(path.join(DOCS, 'verify-fixes-log.txt'), LINES.join('\n'), 'utf8');
+    } catch (e) { log('(写结果文件失败: ' + e.code + ')'); }
     await browser.close();
     log('\n已写出 docs/verify-fixes-result.json 与 docs/verify-fixes-log.txt');
   } catch (e) {
