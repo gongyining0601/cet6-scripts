@@ -59,9 +59,11 @@ const TESTS = [
   { f: 'verify_fixes.js', g: 'core', min: 5, d: '历史修复回归校验' },
   { f: 'test_bank_contract.js', g: 'core', min: 20, d: '题库字段契约（逐卷逐题）' },
   { f: 'test_version_sync.js', g: 'core', min: 3, d: '三方版本号一致性' },
+  { f: 'check_divergence.js', g: 'core', min: 20, d: '双项目防漏修：共享内核字节一致 + 修复点清单' },
   { f: 'test_contrast_light.js', g: 'core', min: 3, d: '浅色主题对比度 ≥4.5:1' },
   { f: 'test_coverage.js', g: 'core', min: 2, d: 'core.js 覆盖率门禁（行/分支 ≥80%，排除 bank）' },
   { f: 'test_id_isolation.js', g: 'core', min: 3, d: '4 位学习编号隔离风险声明 + 存储键隔离' },
+  { f: 'test_sync.js', g: 'core', min: 30, d: '私有同步（共享内核）：合并算法 + 端点并发/恢复闭环' },
 
   /* --- 浏览器：功能与交互 --- */
   { f: 'test_e2e_ui.js', g: 'browser', min: 30, d: '真实 E2E（Playwright 驱动 UI：登录→做题→错题→统计→备份→导出导入）' },

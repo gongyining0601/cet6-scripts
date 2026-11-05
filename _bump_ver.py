@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-# 版本号单点化后的一键递增：只改 app/version.js 里的 cet6-vN（sw.js 与 index.html 都引用它）
-import io, re
-p = r'D:\CET6\app\version.js'
-s = io.open(p, encoding='utf-8').read()
-m = re.search(r"cet6-v(\d+)", s)
-assert m, 'version.js 里找不到 cet6-vN 版本号'
-nv = 'cet6-v%d' % (int(m.group(1)) + 1)
-io.open(p, 'w', encoding='utf-8', newline='\n').write(s.replace(m.group(0), nv, 1))
-print('OK version.js: %s -> %s' % (m.group(0), nv))
+# 手动递增版本号的备用工具。真正的实现只有一份：scripts/bump_version.js
+# （gen_meta.js 加卷时也会自动调用它）。本文件只是给习惯用 Python 的场景留个入口，
+# 保留两套独立实现正是过去「三方版本串漂移」的根因，故这里只做转发。
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+script = root / 'scripts' / 'bump_version.js'
+args = ['node', str(script)] + sys.argv[1:]
+sys.exit(subprocess.call(args, cwd=str(root)))

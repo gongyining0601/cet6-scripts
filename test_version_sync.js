@@ -1,43 +1,41 @@
-'use strict';
-/* S5 · 三方版本号一致性断言
- * 版本号散落三处：app/version.js（主源）、app/sw.js（SW 兜底）、app/index.html（页面兜底）。
- * 任意一处不一致 → 离线可能加载不到 core.js。本用例秒级、纯 fs+正则，进 core 组。
+/* scripts/test_version_sync.js —— 版本与外壳一致性闸门（CET4 / CET6 共用，两仓字节一致）
  *
- * 复测：把 sw.js 的兜底改成 cet6-v20，用例必须 FAIL。 */
-const fs = require('fs');
+ * 版本串散落三处：app/version.js（主源）、app/sw.js（SW 兜底）、app/index.html（页面兜底）。
+ * 任意一处不一致 → 离线可能加载到旧版 core.js，且页面不报错。
+ * 顺带盯住外壳：SW 预缓存清单必须包含同步层两个脚本，CSP 必须是静态 meta。
+ *
+ * 复测：把 sw.js 的兜底改成旧版本，本用例必须 FAIL。
+ */
+'use strict';
 const path = require('path');
+const ROOT = path.resolve(__dirname, '..');
+const { inspect } = require(path.join(__dirname, 'bump_version.js'));
 
-const APP = path.join(__dirname, '..', 'app');
-const versionJs = fs.readFileSync(path.join(APP, 'version.js'), 'utf8');
-const swJs = fs.readFileSync(path.join(APP, 'sw.js'), 'utf8');
-const indexHtml = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
-
-let nOk = 0, nFail = 0;
+let ok = 0, fail = 0;
 function chk(name, cond, detail) {
-  if (cond) { nOk++; console.log('ok   ' + name + (detail ? ' | ' + detail : '')); }
-  else { nFail++; console.log('FAIL ' + name + (detail ? ' | ' + detail : '')); }
+  if (cond) { ok++; console.log('ok   ' + name + (detail ? ' | ' + detail : '')); }
+  else { fail++; console.log('FAIL ' + name + (detail ? ' | ' + detail : '')); }
 }
 
-// 提取三处版本串
-const v1 = (versionJs.match(/CET6_VERSION\s*=\s*['"]([^'"]+)['"]/) || [])[1];
-const v2 = (swJs.match(/VERSION\s*=\s*self\.CET6_VERSION\s*\|\|\s*['"]([^'"]+)['"]/) || [])[1];
-const v3 = (indexHtml.match(/CET6_VERSION\s*\|\|\s*['"]([^'"]+)['"]/) || [])[1];
+const v = inspect(ROOT);
+chk('version.js 含版本串', /^cet[46]-v\d+$/.test(v.main), 'main=' + v.main);
+chk('sw.js 兜底版本串可提取', !!v.sw, 'sw=' + v.sw);
+chk('index.html 兜底版本串可提取', !!v.html, 'html=' + v.html);
+chk('主源 === SW 兜底', v.main === v.sw, v.main + ' vs ' + v.sw);
+chk('主源 === 页面兜底', v.main === v.html, v.main + ' vs ' + v.html);
 
-chk('version.js 含版本串', !!v1, 'v1=' + v1);
-chk('sw.js 兜底版本串可提取', !!v2, 'v2=' + v2);
-chk('index.html 兜底版本串可提取', !!v3, 'v3=' + v3);
-
-// 三方必须全等（兜底值与主源一致，避免离线加载到错误版本的 core.js）
-chk('version.js === sw.js 兜底', v1 === v2, v1 + ' vs ' + v2);
-chk('version.js === index.html 兜底', v1 === v3, v1 + ' vs ' + v3);
-
-// SW SHELL 中 core.js 必须带 ?v= 缓存穿透参数
-const shellMatch = swJs.match(/SHELL\s*=\s*\[([\s\S]*?)\];/);
+const shellMatch = /SHELL\s*=\s*\[([\s\S]*?)\];/.exec(v.swText);
 chk('SW SHELL 数组可提取', !!shellMatch, '');
 if (shellMatch) {
-  const hasCoreV = /core\.js\?v=/.test(shellMatch[1]);
-  chk('SW SHELL 中 core.js 带 ?v= 参数', hasCoreV, shellMatch[1].slice(0, 200));
+  const shell = shellMatch[1];
+  chk('SHELL 中 core.js 带 ?v= 参数', /core\.js\?v=/.test(shell), '');
+  chk('SHELL 预缓存 sync-config.js（否则离线启用不了同步）', shell.includes("'./sync-config.js'"), '');
+  chk('SHELL 预缓存 sync.js', shell.includes("'./sync.js'"), '');
 }
+chk('CSP 为静态 meta（file:// 与 https 同时生效）',
+  /<meta\s+http-equiv="Content-Security-Policy"/.test(v.htmlText), '');
+chk('页面引用同步层两个脚本',
+  /<script src="sync-config\.js"><\/script>/.test(v.htmlText) && /<script src="sync\.js"><\/script>/.test(v.htmlText), '');
 
-console.log('\n===== 版本一致性: ' + nOk + ' ok / ' + nFail + ' fail =====');
-process.exitCode = nFail ? 1 : 0;
+console.log('\n===== 版本与外壳一致性: ' + ok + ' ok / ' + fail + ' fail =====');
+process.exit(fail ? 1 : 0);
