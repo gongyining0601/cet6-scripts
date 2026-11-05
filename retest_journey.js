@@ -85,7 +85,13 @@ async function answerAll(page) {
 async function runGroup(page, idx) {
   const btn = page.locator('#planList .card button').nth(idx || 0);
   if (!(await btn.count())) return { ok: false, why: 'no-plan-item' };
-  await btn.click(); await page.waitForTimeout(350);
+  await btn.click();
+  // 等待题目真的渲染出来（按需加载：#quiz.show 不代表 .opt 已挂载；
+  // 不等待会导致 answerAll 拿到 0 题 → groupSubmit 永远 disabled → click 死等超时）
+  await page.waitForFunction(() => {
+    const b = document.getElementById('quizBody');
+    return !!b && (b.querySelectorAll('.opt').length || b.querySelectorAll('.cloze-slot').length || b.querySelector('#essayTa'));
+  }, null, { timeout: 15000 }).catch(() => {});
   const n = await answerAll(page);
   const sub = page.locator('#groupSubmit');
   if (await sub.count()) { await sub.click(); await page.waitForTimeout(500); return { ok: true, answered: n, kind: 'objective' }; }

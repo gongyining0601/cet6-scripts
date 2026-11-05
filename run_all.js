@@ -57,7 +57,6 @@ const TESTS = [
   { f: 'retest_shape.js', g: 'core', min: 0, kind: 'dump', d: '题库字段形状导出（工具型，无断言）' },
   { f: 'verify_bank.js', g: 'core', min: 5, d: '题库完整性校验' },
   { f: 'verify_fixes.js', g: 'core', min: 5, d: '历史修复回归校验' },
-  { f: 'verify_fix_report.js', g: 'core', min: 1, d: '修复报告生成/自检' },
   { f: 'test_bank_contract.js', g: 'core', min: 20, d: '题库字段契约（逐卷逐题）' },
   { f: 'test_version_sync.js', g: 'core', min: 3, d: '三方版本号一致性' },
   { f: 'test_contrast_light.js', g: 'core', min: 3, d: '浅色主题对比度 ≥4.5:1' },
@@ -82,6 +81,7 @@ const TESTS = [
   // 注意：这个套件是"聚合判定"，多数断言本身就是一整类检查的结论（脏数据/导出/边界/完整旅程），
   // 真实产出 12 条。旧的 min=20 是历史遗留的虚高值，会让它永远被判 SHRUNK。
   { f: 'test_security_audit.js', g: 'browser', min: 12, timeout: 900000, d: '安全与健壮性审计' },
+  { f: 'verify_fix_report.js', g: 'browser', min: 1, d: '修复报告自检（依赖 security_audit 产物）' },
   { f: 'test_security_extra.js', g: 'browser', min: 8, d: '安全补充用例' },
   { f: 'test_retest_interaction.js', g: 'browser', min: 30, d: '复测轮 · 交互状态机' },
   { f: 'test_round3_interaction.js', g: 'browser', min: 150, d: '第三轮 · 交互回归' },
@@ -106,7 +106,9 @@ const TESTS = [
   { f: 'retest_pwa_probe.js', g: 'probe', min: 0, kind: 'dump', d: 'PWA 单点定位探针（只读取证，无断言）' },
   { f: 'retest_journey.js', g: 'probe', min: 1, d: '旅程取证' },
   { f: 'retest_misc.js', g: 'probe', min: 1, d: '杂项取证' },
-  { f: 'retest_probe.js', g: 'probe', min: 1, d: '通用探针' },
+  // 取证型探针：只输出取证信息（下载/JSON 头部/控制台），本身不做 ok/fail 判定。
+  // 与 retest_shape.js / retest_pwa_probe.js 同类，判 NO-ASSERT 属于冤枉。
+  { f: 'retest_probe.js', g: 'probe', min: 0, kind: 'dump', d: '通用探针（只读取证，无断言）' },
   { f: 'retest_reach.js', g: 'probe', min: 1, d: '可达性取证' },
 ];
 

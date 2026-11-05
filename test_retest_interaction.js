@@ -623,6 +623,11 @@ const m2 = await metrics(pageM);   // metrics() 内部已 collectGarbage
   for (let g = 0; g < 5; g++) {
     const o = await openFirstOpenGroup(page2);
     if (!o) { chk('A5 第 ' + (g + 1) + ' 组可打开', false, '未找到可开始的题组'); break; }
+    // 等待题目真的渲染出来（按需加载，#quiz.show 不代表 .opt 已挂载）
+    await page2.waitForFunction(() => {
+      const b = document.getElementById('quizBody');
+      return !!b && b.querySelectorAll('.opt').length > 0;
+    }, null, { timeout: 15000 }).catch(() => {});
     // 点选 3 次计时
     const q3 = await page2.evaluate(() => {
       const seen = {}, out = [];
@@ -813,6 +818,12 @@ async function sectionB() {
     await shot(page, 'vp-' + vp.name + '-today');
     // 答题页
     const o = await openFirstOpenGroup(page);
+    // 等待题目真的渲染出来（按需加载：#quiz.show 不代表 .opt 已挂载，
+    // 中等视口偶发 opts=0 就是这里抢跑了）
+    await page.waitForFunction(() => {
+      const b = document.getElementById('quizBody');
+      return !!b && b.querySelectorAll('.opt').length > 0;
+    }, null, { timeout: 15000 }).catch(() => {});
     const quiz = await page.evaluate(() => window.__scan());
     const qinfo = await page.evaluate(() => window.__t.quiz());
     await shot(page, 'vp-' + vp.name + '-quiz');
