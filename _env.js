@@ -72,6 +72,56 @@ const BANK_PREFIX = 'cet6-';
 const BANK_GLOBAL = 'CET6_BANKS';
 const META_GLOBAL = 'CET6_META';
 
+/* ---------- 从 core.js 读「清单结构版本」PLAN_VERSION ----------
+   2026-11-05：一批老脚本把 plan.v 写死成 3，而 PLAN_VERSION 已升到 8。
+   ensurePlan() 只要发现 plan.v !== PLAN_VERSION 就整份丢弃重算 ——
+   于是注入的 plan 从未生效，用例看到的永远是"自动生成的清单"，
+   后续对着卡片/题目下手全部错位（表现为 TIMEOUT、草稿为空、取到 undefined）。
+   凡是注入 plan 的夹具，v 一律取这里，别再写死。 */
+function planVersion() {
+  const p = path.join(__dirname, '..', 'app', 'core.js');
+  const m = /CORE\.PLAN_VERSION\s*=\s*(\d+)/.exec(fs.readFileSync(p, 'utf8'));
+  if (!m) throw new Error('无法从 app/core.js 解析 CORE.PLAN_VERSION');
+  return Number(m[1]);
+}
+
+/* ---------- 读完一题所需的最小状态（供各用例复用） ----------
+   注意：这里不能让它抛异常。_env 被所有用例 require，
+   一旦某个仓里没有 app/core.js，抛错会让全体用例连启动都失败。 */
+let PLAN_V = null;
+try { PLAN_V = planVersion(); } catch (e) { PLAN_V = null; }
+
+/* ---------- 把当前浮层里的题全部作答（客观题 + 选词填空） ----------
+   2026-11-05：老版本的 answerAll 只点 .opt，遇到"选词填空"组（词库点选）
+   一题都答不上 → #groupSubmit 永远 disabled → click 死等到超时。
+   选词填空的交互是：先点空格 .cloze-slot（进入聚焦），再点词库 .wb-chip 填入。
+   这里两种都覆盖，返回实际作答的题数。 */
+async function answerAllInQuiz(page) {
+  const n = await page.evaluate(() => {
+    const body = document.getElementById('quizBody');
+    if (!body) return { opt: 0, cloze: 0 };
+    let opt = 0, cloze = 0;
+    // 1) 选择题：每题点第一个选项（已选过的不重复点）
+    const answeredQ = {};
+    Array.prototype.forEach.call(body.querySelectorAll('.opt[data-q]'), (b) => {
+      const q = b.getAttribute('data-q');
+      if (!answeredQ[q]) { answeredQ[q] = 1; b.click(); opt++; }
+    });
+    // 2) 选词填空：空格与词库一一配对（先点空格聚焦，再点词填入）
+    const chips = Array.prototype.slice.call(body.querySelectorAll('.wb-chip'));
+    Array.prototype.forEach.call(body.querySelectorAll('.cloze-slot[data-qno]'), (slot, i) => {
+      if (slot.getAttribute('data-picked')) return;
+      const chip = chips[i] || chips[chips.length - 1];
+      if (!chip) return;
+      slot.click();
+      chip.click();
+      if (slot.getAttribute('data-picked')) cloze++;
+    });
+    return { opt, cloze };
+  });
+  return n.opt + n.cloze;
+}
+
 async function ensurePaper(page, pid, timeoutMs) {
   return page.evaluate(({ pid, prefix, g, t }) => new Promise((res) => {
     const has = () => (window[g] || []).some((b) => b.id === pid);
@@ -161,4 +211,4 @@ function ensureCerts() {
   return { dir, key, cert };
 }
 
-module.exports = { chromium, EXE, fileUrl, ensurePaper, ensureAllPapers, bankDigest, ensureCerts };
+module.exports = { chromium, EXE, fileUrl, ensurePaper, ensureAllPapers, bankDigest, ensureCerts, planVersion, PLAN_V, answerAllInQuiz };

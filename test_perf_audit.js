@@ -133,6 +133,38 @@ async function submitGroup(page) {
   });
 }
 
+/** 兜底：把仍开着的答题浮层关掉。
+ *  #quiz 是 position:fixed 全屏浮层，只要它没真正退出（提交按钮 disabled、#groupDone 没出现、
+ *  写作组没点「我写完了」……），下一轮去点清单卡片的 locator.click() 一定被它拦截，
+ *  干等满 30s 抛 Timeout —— 表现为内存用例整个 FATAL（连带后续段落全丢、断言数跌破下限）。
+ *  这里先点 #groupDone → 退化为 #quizBack，再用「今日」导航兜底，最后不依赖可点性。 */
+async function closeQuizIfOpen(page) {
+  const open = await page.evaluate(function () {
+    var q = document.getElementById('quiz');
+    return !!(q && q.classList.contains('show'));
+  });
+  if (!open) return false;
+  await page.evaluate(function () {
+    var d = document.getElementById('groupDone');
+    if (d && d.getClientRects().length) { d.click(); return; }
+    var b = document.getElementById('quizBack');
+    if (b) b.click();
+  });
+  await page.waitForSelector('#quiz', { state: 'hidden', timeout: 6000 }).catch(function () {});
+  const still = await page.evaluate(function () {
+    var q = document.getElementById('quiz');
+    return !!(q && q.classList.contains('show'));
+  });
+  if (still) {
+    await page.evaluate(function () {
+      var b = document.querySelector('nav button[data-p="today"]');
+      if (b) b.click();
+    });
+    await page.waitForTimeout(300);
+  }
+  return true;
+}
+
 /** 切换深浅色主题。
  *  踩过的坑：#themeBtn 在 header 里，而 #quiz 是 position:fixed 的全屏浮层——
  *  只要上一组题没真正退出（例如提交按钮一直 disabled、#groupDone 从未出现），
@@ -406,6 +438,7 @@ async function sectionMemory(browser) {
   const groups = [];
   let answeredTotal = 0;
   for (let i = 0; i < 5; i++) {
+    await closeQuizIfOpen(page);   // 上一组若没真正退出，浮层会挡住清单卡片
     let card = page.locator('#planList .card:not(.done)').first();
     if (!(await card.count())) {
       // 清单做完仍不足 5 组：用「加练」按钮补足（真实 UI 路径）
@@ -417,7 +450,13 @@ async function sectionMemory(browser) {
       if (!(await card.count())) break;
     }
     const title = ((await card.locator('b').first().textContent().catch(function () { return ''; })) || '').replace(/\s+/g, ' ').trim();
-    await card.locator('button').first().click();
+    await closeQuizIfOpen(page);
+    try {
+      await card.locator('button').first().click({ timeout: 8000 });
+    } catch (e) {
+      // 仍被浮层/提示挡住就退化为页内 DOM click（不依赖可点性判定）
+      await card.locator('button').first().evaluate(function (b) { b.click(); });
+    }
     await page.waitForSelector('#quiz.show', { timeout: 25000 });
     const answered = await answerGroup(page);
     if (await page.locator('#essayTa').count()) {

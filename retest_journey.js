@@ -9,7 +9,7 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl, planVersion, answerAllInQuiz } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
@@ -26,6 +26,8 @@ const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.get
 const UID = '9203';
 const SKEY = 'cet6_p1_state_v1_' + UID;
 const PAPER = '2026-06-1';
+/* 注入 plan 的 v 必须等于当前 PLAN_VERSION，否则 ensurePlan 整份丢弃重算（原来写死 v:3）。 */
+const PLANV = planVersion();
 
 const R = { meta: {}, cases: [], console: [], newIssues: [], summary: {} };
 function t(name, group, pass, detail) {
@@ -72,14 +74,11 @@ async function shot(page, n) { try { await page.screenshot({ path: path.join(DOC
 function baseState(e) { return Object.assign({ version: 1, history: {}, papers: {}, wrongbook: {}, plan: null, essays: {}, hl: {}, lastBackup: '' }, e || {}); }
 function h(min, done) { return { minutes: min, done: !!done, floor: false, qCount: 2, right: 1, timed: 0, timedWithin: 0, timedSec: 0 }; }
 
-/* 把当前题组的每一题都选第一个选项 */
+/* 把当前题组的每一题都作答（客观题 + 选词填空都覆盖）
+   2026-11-05：原来只点 .opt，遇到清单首张卡是「选词填空」时一题都答不上，
+   #groupSubmit 永远 disabled → 下面 sub.click() 死等 30s，整个用例 TIMEOUT。 */
 async function answerAll(page) {
-  const qids = await page.evaluate(() => Array.from(new Set(Array.from(document.querySelectorAll('#quizBody .opt')).map(b => b.getAttribute('data-q')))));
-  for (const q of qids) {
-    const loc = page.locator(`#quizBody .opt[data-q="${q}"]`).first();
-    if (await loc.count()) await loc.click();
-  }
-  return qids.length;
+  return answerAllInQuiz(page);
 }
 /* 走完一组：开始 → 作答 → 提交 → 完成返回（兼容写作/翻译组的「我写完了」） */
 async function runGroup(page, idx) {
@@ -91,10 +90,17 @@ async function runGroup(page, idx) {
   await page.waitForFunction(() => {
     const b = document.getElementById('quizBody');
     return !!b && (b.querySelectorAll('.opt').length || b.querySelectorAll('.cloze-slot').length || b.querySelector('#essayTa'));
-  }, null, { timeout: 15000 }).catch(() => {});
+  }, null, { timeout: 20000 }).catch(() => {});
   const n = await answerAll(page);
   const sub = page.locator('#groupSubmit');
-  if (await sub.count()) { await sub.click(); await page.waitForTimeout(500); return { ok: true, answered: n, kind: 'objective' }; }
+  if (await sub.count()) {
+    // 提交前确认按钮真的可点：仍 disabled 说明还有题没答上，直接报明原因，
+    // 别用 30s 的默认超时把一个"答不上"变成"卡死"。
+    const disabled = await sub.isDisabled().catch(() => true);
+    if (disabled) return { ok: false, why: 'submit-still-disabled', answered: n };
+    await sub.click({ timeout: 8000 }); await page.waitForTimeout(500);
+    return { ok: true, answered: n, kind: 'objective' };
+  }
   const done = page.locator('#essayDone');
   if (await done.count()) { await done.click(); await page.waitForTimeout(400); return { ok: true, answered: n, kind: 'writing', finished: true }; }
   return { ok: false, why: 'no-submit-btn' };
@@ -234,47 +240,66 @@ async function runGroup(page, idx) {
     /* ================= B5-c 完成按钮重复点击 ================= */
     log('\n================ B5-c) 「完成，返回今日」快速双击是否重复累加分钟 ================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
-      await boot(page, baseState());
-      await page.locator('#planList .card button').first().click();
-      await page.waitForTimeout(400);
-      await answerAll(page);
-      await page.locator('#groupSubmit').click();
-      await page.waitForTimeout(500);
-      const before = await state(page);
-      const mb = (before.history[TODAY] || {}).minutes || 0;
-      const ok = await page.evaluate(() => {
-        const b = document.getElementById('groupDone');
-        if (!b) return false;
-        b.click(); b.click(); b.click();
-        return true;
-      });
-      await page.waitForTimeout(700);
-      const after = await state(page);
-      const ma = (after.history[TODAY] || {}).minutes || 0;
-      const delta = ma - mb;
-      const itemMin = delta / (ok ? 3 : 1);
-      R.repeatDone = { before: mb, after: ma, delta, clicks: 3 };
-      t('三次点击「完成，返回今日」→ 分钟只累加一次', delta > 0 && Math.abs(ma - mb - (delta > 0 ? (ma - mb) : 0)) < 1e-9 && delta < (ma - mb) + 1e-9, '');
-      const bad = delta > 0 && !(delta === itemMin);
-      t('重复点击未造成分钟重复累加', 'B5 重复完成', !bad && delta > 0,
-        '三次点击后 minutes 从 ' + mb + ' → ' + ma + '（净增 ' + delta + '）；若一次应增 ' + (delta / 3).toFixed(1) + '，则放大了 3 倍');
-      if (bad) {
-        issue('N-1', 'finishItem 无幂等守卫：快速重复点击「完成，返回今日」会把本组分钟重复累加', '中',
-          'app/index.html:551-566（finishItem）配合 :759-763（groupDone.onclick）',
-          '答题判分后，用脚本对 #groupDone 连续 click() 三次（或触屏快速连点三次）',
-          'finishItem 内先判 if (it.done) { renderToday(); return; }；或在 quizExit 里清空 #quizBody 并解除按钮 handler',
-          'minutes ' + mb + ' → ' + ma + '（净增 ' + delta + '，3 次点击 = 3 倍）');
-      }
-      t('无 JS 报错', 'B5 重复完成', logs.pageerror.length === 0, logs.pageerror.join('|'));
-      await ctx.close();
+      /* 2026-11-05 重写：原判定是 delta 与 delta/3 比，必然不相等 → 只要分钟有增长就必判失败，
+         而且第 264 行把 t() 的实参顺序写错了（group 传成布尔、pass 传成 ''），
+         所以这条无论产品对不对都会红。
+         正确做法是 A/B 对照：同一组题，一次点击 vs 连点三次，两次结果必须相同。 */
+      const playOnce = async (clicks) => {
+        const { ctx, page, logs } = await newCtx(browser);
+        /* 固定用「1 道阅读选择题」的题组：清单首张卡若是写译组，走的是 #essayDone
+           另一条路径、也不会有 #groupDone，A/B 对照就无从谈起。 */
+        await boot(page, baseState({
+          plan: { date: TODAY, v: PLANV, items: [{ key: 'b5c', type: 'reading', qids: ['2026-06-1-r-46'], paperId: PAPER, label: 'B5c', done: false, minutes: 0 }] },
+        }));
+        await page.locator('#planList .card button').first().click();
+        await page.waitForFunction(() => {
+          const b = document.getElementById('quizBody');
+          return !!b && (b.querySelectorAll('.opt').length || b.querySelectorAll('.cloze-slot').length || b.querySelector('#essayTa'));
+        }, null, { timeout: 20000 }).catch(() => { });
+        await answerAll(page);
+        const sub = page.locator('#groupSubmit');
+        if (await sub.count()) {
+          if (await sub.isDisabled().catch(() => true)) { await ctx.close(); return { skip: 'submit-disabled' }; }
+          await sub.click({ timeout: 8000 });
+          await page.waitForTimeout(500);
+        } else {
+          const dn = page.locator('#essayDone');
+          if (await dn.count()) { await dn.click(); await page.waitForTimeout(400); }
+          else { await ctx.close(); return { skip: 'no-submit' }; }
+        }
+        const mb = ((await state(page)).history[TODAY] || {}).minutes || 0;
+        const clicked = await page.evaluate((k) => {
+          const b = document.getElementById('groupDone');
+          if (!b) return 0;
+          for (let i = 0; i < k; i++) b.click();
+          return k;
+        }, clicks);
+        await page.waitForTimeout(700);
+        const ma = ((await state(page)).history[TODAY] || {}).minutes || 0;
+        const err = logs.pageerror.slice();
+        await ctx.close();
+        return { delta: ma - mb, mb, ma, clicked, err };
+      };
+      const one = await playOnce(1);
+      const three = await playOnce(3);
+      R.repeatDone = { single: one, triple: three };
+      log('   单次点击：' + JSON.stringify(one) + '；连点三次：' + JSON.stringify(three));
+      const comparable = !one.skip && !three.skip;
+      t('单次点击「完成，返回今日」会把本组分钟计入（对照组有效）', comparable && one.delta > 0,
+        comparable ? '单次净增 ' + one.delta : '对照失效：' + (one.skip || three.skip));
+      t('连点三次与单次点击累加的分钟相同（无重复累加）', comparable && three.delta === one.delta,
+        comparable ? '单次 ' + one.delta + ' vs 三次 ' + three.delta + '（若三次为单次的 3 倍即为缺陷）'
+          : '对照失效：' + (one.skip || three.skip));
+      t('B5 重复完成 · 无 JS 报错', 'B5 重复完成',
+        (one.err || []).length === 0 && (three.err || []).length === 0,
+        ((one.err || []).concat(three.err || [])).join('|'));
     }
 
     /* ================= B5-d 倒计时归零后继续答题 ================= */
     log('\n================ B5-d) 定时器到 0 后继续答题 ================');
     {
       const { ctx, page, logs } = await newCtx(browser);
-      const st = baseState({ plan: { date: TODAY, v: 3, items: [{ key: 'k', type: 'reading', qids: ['2026-06-1-r-46', '2026-06-1-r-47'], paperId: PAPER, label: 'L', done: false, minutes: 0, timerLeft: 3 }] } });
+      const st = baseState({ plan: { date: TODAY, v: PLANV, items: [{ key: 'k', type: 'reading', qids: ['2026-06-1-r-46', '2026-06-1-r-47'], paperId: PAPER, label: 'L', done: false, minutes: 0, timerLeft: 3 }] } });
       await boot(page, st);
       await page.locator('#planList .card button').first().click();
       await page.waitForTimeout(600);
@@ -412,7 +437,7 @@ async function runGroup(page, idx) {
       await p2.goto(URL, { waitUntil: 'load' });
       await p2.waitForSelector('#loginMask, #planList .card', { timeout: 30000 });
       await p2.evaluate(({ st }) => { localStorage.setItem('cet6_user', '9203'); localStorage.setItem('cet6_p1_state_v1_9203', st); },
-        { st: JSON.stringify(baseState({ history: { '2026-09-26': h(20, true), '2026-09-27': h(30, true) }, plan: { date: '2026-09-27', v: 3, items: [{ key: 'old', type: 'reading', qids: ['2026-06-1-r-46'], paperId: PAPER, label: '昨天的', done: true, minutes: 0 }] } })) });
+        { st: JSON.stringify(baseState({ history: { '2026-09-26': h(20, true), '2026-09-27': h(30, true) }, plan: { date: '2026-09-27', v: PLANV, items: [{ key: 'old', type: 'reading', qids: ['2026-06-1-r-46'], paperId: PAPER, label: '昨天的', done: true, minutes: 0 }] } })) });
       await p2.reload({ waitUntil: 'load' });
       await p2.waitForTimeout(900);
       const info = await p2.evaluate(() => ({
@@ -463,8 +488,15 @@ async function runGroup(page, idx) {
       await page.goto(URL, { waitUntil: 'load' });
       await page.waitForSelector('#loginMask, #planList .card', { timeout: 30000 });
       const full = await page.evaluate(() => {
+        /* 按需加载：首屏 window.CET6_BANKS 是空数组，靠它枚举题目会得到 0 题，
+           于是"题库全做完"这个场景根本没造出来。改从常驻的 meta 骨架取全量 qid。 */
         const papers = {};
-        (window.CET6_BANKS || []).forEach(b => (b.questions || []).forEach(q => { papers[q.id] = { seen: 1, right: 1, wrong: 0, lastAt: '2026-09-27', lastResult: 'right', lastAnswer: 'A' }; }));
+        const META = window.CET6_META || {};
+        (META.order || []).forEach(pid => {
+          ((META.papers[pid] || {}).qLite || []).forEach(q => {
+            papers[q.id] = { seen: 1, right: 1, wrong: 0, lastAt: '2026-09-27', lastResult: 'right', lastAnswer: 'A' };
+          });
+        });
         const st = { version: 1, history: {}, papers, wrongbook: {}, plan: null, essays: {}, hl: {}, lastBackup: '' };
         localStorage.setItem('cet6_user', '9203');
         localStorage.setItem('cet6_p1_state_v1_9203', JSON.stringify(st));

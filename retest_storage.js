@@ -23,6 +23,10 @@ const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.get
 const A = '9203', B = '9204', C = '9001';
 const KA = 'cet6_p1_state_v1_' + A, KB = 'cet6_p1_state_v1_' + B, KC = 'cet6_p1_state_v1_' + C;
 const LEGACY = 'cet6_p1_state_v1';
+/* 「写盘失败」的可见提示语族。产品在不同路径用了不同措辞（底线打卡/提交判分用
+   「保存失败：…」，加练用「…没写进本机存储，刷新会丢…」），语义完全一致。
+   断言只认其中一种字面就会把正确实现判成缺陷 —— 这里统一成一个语义正则。 */
+const FAIL_NOTICE = /保存失败|没写进本机存储|没写进|刷新会丢|未保存/;
 
 const R = { meta: {}, cases: [], storage: {}, summary: {} };
 function t(name, group, pass, detail) {
@@ -103,7 +107,7 @@ function withMinutes(m) { return baseState({ history: { [TODAY]: { minutes: m, d
       const toast1 = await toastText(page);
       const warnAfter = await saveWarn(page);
       t('写满时 save() 失败被捕获（无未捕获异常）', '存储写满', logs.pageerror.length === 0, logs.pageerror.join('|'));
-      t('失败 toast 提示「保存失败」', '存储写满', /保存失败/.test(toast1), JSON.stringify(toast1));
+      t('失败 toast 提示「保存失败」', '存储写满', FAIL_NOTICE.test(toast1), JSON.stringify(toast1));
       t('#saveWarn 常驻横幅点亮且文案说明后果', '存储写满', !!warnAfter && warnAfter.display === 'block' && warnAfter.text.length > 10, JSON.stringify(warnAfter));
       t('横幅在失败前是隐藏的（对照）', '存储写满', !!warnBefore && warnBefore.display === 'none', JSON.stringify(warnBefore));
       t('失败时页面仍可用（未白屏）', '存储写满', (await page.locator('#planList .card').count()) > 0, '');
@@ -115,11 +119,15 @@ function withMinutes(m) { return baseState({ history: { [TODAY]: { minutes: m, d
       await page.waitForTimeout(400);
       const toast2 = await toastText(page);
       const warn2 = await saveWarn(page);
-      const extraToastOverwrites = /加练/.test(toast2) && !/保存失败/.test(toast2);
+      /* 2026-11-05 修：这里原来只认字面「保存失败」，但「加练」路径用的是另一句
+         语义等价文案「加练已加入本次页面，但没写进本机存储，刷新会丢…」。
+         产品行为本来就是对的（index.html:717 已按 saveFailed 分支如实提示），
+         是断言把措辞写死才判负 —— 属于过时断言，不是产品缺陷。 */
+      const extraWarns = FAIL_NOTICE.test(toast2);
       t('后续成功 toast 不会撤掉 #saveWarn 横幅（M-5 常驻横幅有效）', '存储写满', !!warn2 && warn2.display === 'block' && warn2.text.length > 10, JSON.stringify(warn2));
       R.storage.extraToastAfterFailure = toast2;
-      t('「加练」路径在保存失败时仍报成功（save() 返回值被忽略）', '存储写满', !extraToastOverwrites,
-        'toast="' + toast2 + '"  ← index.html:543-544 的 save() 返回值未用于 toast 文案');
+      t('「加练」路径在保存失败时如实提示未落盘（不报成功）', '存储写满', /加练/.test(toast2) && extraWarns,
+        'toast="' + toast2 + '"  ← 需含「保存失败 / 没写进本机存储 / 刷新会丢」之一');
       // 主题切换（另一个 key，写成功）后横幅是否还在
       await page.locator('#themeBtn').click();
       await page.waitForTimeout(350);
@@ -178,10 +186,17 @@ function withMinutes(m) { return baseState({ history: { [TODAY]: { minutes: m, d
         });
       }
       R.storage.disabledLoginAttempts = attempts;
-      const stuck = attempts.length > 0 && attempts.every(a => a.stillMask && !a.hasApp);
-      t('记录：存储禁用时登录 3 次仍停在登录层（内存兜底进不去）', '存储禁用', stuck,
+      /* 2026-11-05 修：这条断言原来写的是「存储禁用时登录 3 次仍停在登录层」，
+         即把 N-SEC-2（内存兜底模式下 reload 导致点【开始学习】毫无反应）的
+         **故障现象当成预期行为**。产品后来修掉了：storeDisabled 时走 startSession
+         原地进入，不再 reload。断言必须跟着改成验证修复后的行为，
+         否则修好了反而判红（这正是"测试锁死缺陷"的典型）。 */
+      const enteredInMemory = attempts.length > 0 && attempts.every(a => !a.stillMask && a.hasApp);
+      t('存储禁用时仍能凭编号进入（N-SEC-2 内存兜底，不卡在登录层）', '存储禁用', enteredInMemory,
         JSON.stringify(attempts));
-      R.storage.disabledStuck = stuck;
+      t('内存兜底进入过程中不弹任何对话框（无 alert 死循环）', '存储禁用', logs.dialog.length === 0,
+        JSON.stringify(logs.dialog));
+      R.storage.disabledEnteredInMemory = enteredInMemory;
       fact('存储禁用时的登录尝试结果', attempts);
       fact('弹窗（alert/prompt）次数', logs.dialog);
       await page.screenshot({ path: path.join(DOCS, 'retest-security-storage-disabled-login-loop.png') });

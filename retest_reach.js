@@ -12,7 +12,7 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl, ensurePaper, planVersion } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
@@ -24,6 +24,9 @@ const pad = n => (n < 10 ? '0' + n : '' + n);
 const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
 const PAPER = '2026-06-1';
+/* 注入 plan 的 v 必须等于当前 PLAN_VERSION，否则 ensurePlan 会整份丢弃重算
+   （原来写死 v:3，而版本已到 8 —— 注入的清单从未生效，浮层里是自动生成的组）。 */
+const PLANV = planVersion();
 const PAY = '<img src=x onerror="__probe(\'REACH\')">';
 
 const LINES = [];
@@ -32,7 +35,7 @@ const R = { meta: {}, rows: [], summary: {} };
 async function shot(page, n) { try { await page.screenshot({ path: path.join(DOCS, 'retest-security-reach-' + n + '.png') }); } catch (e) { } }
 const stateOf = page => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('cet6_p1_state_v1_9203') || 'null'); } catch (e) { return null; } });
 function baseState(e) { return Object.assign({ version: 1, history: {}, papers: {}, wrongbook: {}, plan: null, essays: {}, hl: {}, lastBackup: '' }, e || {}); }
-const planWith = items => ({ date: TODAY, v: 3, items });
+const planWith = items => ({ date: TODAY, v: PLANV, items });
 
 async function newCtx(browser) {
   const ctx = await browser.newContext({ viewport: { width: 430, height: 940 } });
@@ -109,9 +112,11 @@ function record(id, point, container, res, note) {
         essays: { writing: { lastAt: TODAY, text: PAY + ' essay body' } },
       }));
       await page.locator('#planList .card button').first().click();
-      await page.waitForTimeout(500);
+      /* 按需加载：写译组的 textarea 要等卷脚本注入才渲染，固定 500ms 不够稳。
+         等到 #essayTa 真的出现（或超时）再取证，避免把"还没渲染"误判成"容器缺失"。 */
+      await page.waitForSelector('#essayTa', { timeout: 20000 }).catch(() => { });
+      await page.waitForTimeout(200);
       const res = await probe(page, '#essayTa');
-      const res2 = await probe(page, '#quizBody');
       record('S2', 'essays.writing.text', '#essayTa(textarea)', res, '');
       R.rows.push({ id: 'S3', point: 'essays.writing.text → 容器级（仅供参考）', container: '#quizBody', ok: true, informational: true, note: 'textarea 的 value 不计入容器 innerText；S2 已在元素级验证 reached+escaped' });
       await shot(page, 'essay-textarea');
@@ -148,6 +153,8 @@ function record(id, point, container, res, note) {
     {
       const { ctx, page, logs } = await newCtx(browser);
       await boot(page, baseState({ plan: planWith([{ key: 'r1', type: 'reading', qids: [PAPER + '-r-46'], paperId: PAPER, label: '阅读', done: false, minutes: 0 }]) }));
+      // 按需加载：篡改题库前先注入目标卷，否则 BANKS 为空、b.questions 取到 undefined
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，题库路径用例无法进行');
       const applied = await page.evaluate(({ pay }) => {
         const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
         const q = (b.questions || []).find(x => x.id === '2026-06-1-r-46');
@@ -168,19 +175,22 @@ function record(id, point, container, res, note) {
       await page.evaluate(() => { const b = document.getElementById('quizBack'); if (b) b.click(); });
       await page.waitForTimeout(250);
       // 范文：先把 plan 换成写作组并 reload（reload 会丢掉内存里对题库的篡改），再改题库字段
-      await page.evaluate(() => {
+      await page.evaluate(({ pv }) => {
         const s = JSON.parse(localStorage.getItem('cet6_p1_state_v1_9203'));
-        s.plan = { date: s.plan.date, v: 3, items: [{ key: 'w1', type: 'writing', qids: [], paperId: '2026-06-1', done: false, minutes: 0 }] };
+        s.plan = { date: s.plan.date, v: pv, items: [{ key: 'w1', type: 'writing', qids: [], paperId: '2026-06-1', done: false, minutes: 0 }] };
         localStorage.setItem('cet6_p1_state_v1_9203', JSON.stringify(s));
-      }, {});
+      }, { pv: PLANV });
       await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(900);
+      // reload 会清掉上一个上下文里对题库的内存篡改，且按需加载下 BANKS 重新为空 → 重新注入
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 重载后未能加载，范文用例无法进行');
       const w = await page.evaluate(({ pay }) => {
         const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
         b.writing.sample = pay + ' sample body';
         b.writing.prompt = pay + ' prompt';
         return { sample: b.writing.sample, prompt: b.writing.prompt };
       }, { pay: PAY });
-      await page.locator('#planList .card button').first().click(); await page.waitForTimeout(500);
+      await page.locator('#planList .card button').first().click(); await page.waitForTimeout(300);
+      await page.waitForSelector('#essaySample', { timeout: 20000 }).catch(() => { });
       await page.locator('#essaySample').click(); await page.waitForTimeout(400);
       const res3 = await probe(page, '#sampleBox');
       record('B3', 'bank writing.sample', '#sampleBox', res3, 'applied=' + JSON.stringify(w.sample).slice(0, 40));

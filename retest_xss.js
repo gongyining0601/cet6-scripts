@@ -14,7 +14,7 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl, ensurePaper, planVersion } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
@@ -33,8 +33,17 @@ const SKEY = 'cet6_p1_state_v1_' + UID;
 const QID = '2026-06-1-r-46';   // 题库真实存在的题
 const GHOST = '9999-99-9-r-999';
 const PAPER = '2026-06-1';
+/* 注入 plan 的 v 必须等于当前 PLAN_VERSION（原来写死 v:3，清单会被丢弃重算） */
+const PLANV = planVersion();
 
-const R = { meta: {}, control: null, main: [], extra: [], bank: [], summary: {} };
+const R = { meta: {}, control: null, main: [], extra: [], bank: [], cases: [], summary: {} };
+/* 2026-11-05：本脚本此前只 log 不判定，run_all 判它 0 断言 → NO-ASSERT（假绿）。
+   现在每条结论都落成一条断言，既堵住假绿，也让"0 执行/0 注入"变成可被闸门检查的结论。 */
+function t(name, group, pass, detail) {
+  R.cases.push({ name, group, pass: !!pass, detail });
+  log(`  [${pass ? 'PASS' : 'FAIL'}] ${group} · ${name}${detail ? '  → ' + detail : ''}`);
+  return pass;
+}
 const PL_KINDS = ['img', 'svg', 'attr', 'sq', 'script'];
 /* tag = 探针唯一标识，便于从 outerHTML 回溯是哪个用例漏出来的 */
 const mkPL = {
@@ -148,7 +157,7 @@ async function sweep(page) {
 function baseState(extra) {
   return Object.assign({ version: 1, history: {}, papers: {}, wrongbook: {}, plan: null, essays: {}, hl: {}, lastBackup: '' }, extra || {});
 }
-function planWith(items) { return { date: TODAY, v: 3, items: items }; }
+function planWith(items) { return { date: TODAY, v: PLANV, items: items }; }
 const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], paperId: PAPER, label: '仔细阅读·整篇 46-50', done: false, minutes: 0 };
 
 /* ========================================================================== */
@@ -195,6 +204,8 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
       R.control = { pwned: r.pwned, imgs: r.imgs, ok: r.pwned > 0 };
       log('【阴性对照】裸 innerHTML 插入同一 payload → __pwned=' + r.pwned + '，img[src=x]=' + r.imgs +
         '  → 探针' + (r.pwned > 0 ? '有效（0 执行结论可信）' : '※失效，后续 0 执行不可信※'));
+      t('阴性对照：裸 innerHTML 会执行同一 payload（证明探针有效）', '对照', r.pwned > 0,
+        '__pwned=' + r.pwned + ' img[src=x]=' + r.imgs);
       await page.screenshot({ path: path.join(DOCS, 'retest-security-control-harness.png') });
       await ctx.close();
     }
@@ -292,7 +303,10 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
         await boot(page, f.build(P));
         if (f.openQuiz) {   // 需要打开题组才会走到 restoreHl / renderGroup
           const ob = page.locator('#planList .card button').first();
-          if (await ob.count()) { await ob.click(); await page.waitForTimeout(400); }
+          if (await ob.count()) { await ob.click(); }
+          // 按需加载：等题目真正渲染出来，否则 restoreHl 根本没跑
+          await page.waitForSelector('#quizBody .opt, #quizBody .passage', { timeout: 20000 }).catch(() => { });
+          await page.waitForTimeout(250);
         }
         const acc = await sweep(page);
         if (acc.pwned > 0) { executed = true; tags.push({ kind: k, tags: acc.tags }); }
@@ -315,8 +329,11 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
       });
       const { ctx, page, logs } = await newCtx(browser);
       await boot(page, st);
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，草稿逃逸用例无法进行');
       const btn = page.locator('#planList .card button').first();
-      if (await btn.count()) { await btn.click(); await page.waitForTimeout(400); }
+      if (await btn.count()) { await btn.click(); }
+      await page.waitForSelector('#essayTa', { timeout: 20000 }).catch(() => { });
+      await page.waitForTimeout(200);
       const a = await detect(page);
       // 再用「踩分词自查」把 sample 派生文本渲染一次（miss.map(esc)）
       const ck = page.locator('#essayCheck');
@@ -383,6 +400,9 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
         wrongbook: { [QID]: { addedAt: TODAY, box: 0, wrongCount: 1, due: TODAY, ease: 2.5, iv: 1, streak: 0 } },
       });
       await boot(page, st);
+      /* 按需加载：卷正文不在首屏 BANKS 里，不先注入目标卷，下面 find() 得到 undefined，
+         13 例篡改全部 applied='no-paper' —— "0 执行 / 0 注入"是因为压根没篡改，属于假绿。 */
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，题库篡改用例无法进行');
       const applied = await page.evaluate(({ p, v }) => {
         try {
           const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
@@ -423,21 +443,31 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
     const extraInj = R.extra.filter(x => x.injectedKinds > 0).length;
     const bankExec = R.bank.filter(x => x.executed).length;
     const bankInj = R.bank.filter(x => x.injected).length;
+    const bankApplied = R.bank.filter(x => x.applied === 'ok').length;
     const pageErrs = R.main.filter(x => x.pageErr.length).map(x => ({ no: x.no, err: x.pageErr }));
     R.summary = {
       control: R.control, mainTotal: R.main.length, mainExecuted: mainExec, mainInjected: mainInj,
       extraTotal: R.extra.length, extraExecuted: extraExec, extraInjected: extraInj,
-      bankTotal: R.bank.length, bankExecuted: bankExec, bankInjected: bankInj,
+      bankTotal: R.bank.length, bankApplied, bankExecuted: bankExec, bankInjected: bankInj,
       pageErrors: pageErrs,
-      pass: mainExec === 0 && mainInj === 0 && extraExec === 0 && extraInj === 0 && bankExec === 0 && bankInj === 0 && R.control.ok,
+      pass: mainExec === 0 && mainInj === 0 && extraExec === 0 && extraInj === 0 && bankExec === 0 && bankInj === 0 && R.control.ok && bankApplied === R.bank.length,
     };
     log('\n================ 汇总 ================');
-    log(`  阴性对照探针有效：${R.control.ok}（__pwned=${R.control.pwned}）`);
-    log(`  主用例 ${R.main.length} 例：真正执行 ${mainExec} 例，payload 被解析成元素 ${mainInj} 例`);
-    log(`  补充用例 ${R.extra.length} 组：执行 ${extraExec} 组，注入 ${extraInj} 组`);
-    log(`  题库篡改 ${R.bank.length} 例：执行 ${bankExec} 例，注入 ${bankInj} 例`);
-    log(`  页面 JS 报错：${pageErrs.length} 个`);
-    log(`  结论：${R.summary.pass ? '通过（0 执行 / 0 注入）' : '未通过，见上面明细'}`);
+    /* 全部落成断言：既给 run_all 可判定的信号，也避免"打印了 0 执行"却被当成通过 */
+    t('主用例 ' + R.main.length + ' 例：payload 无一被执行', 'XSS 主用例', mainExec === 0,
+      'executed=' + mainExec + '/' + R.main.length + (mainExec ? ' 例：' + R.main.filter(x => x.executed).map(x => '#' + x.no).join(',') : ''));
+    t('主用例 ' + R.main.length + ' 例：payload 无一被解析成元素', 'XSS 主用例', mainInj === 0,
+      'injected=' + mainInj + '/' + R.main.length);
+    t('补充用例 ' + R.extra.length + ' 组：无一执行', 'XSS 补充', extraExec === 0, 'executed=' + extraExec + '/' + R.extra.length);
+    t('补充用例 ' + R.extra.length + ' 组：无一注入', 'XSS 补充', extraInj === 0, 'injected=' + extraInj + '/' + R.extra.length);
+    t('题库篡改 ' + R.bank.length + ' 例：每一例都真的改到了题库（前置条件成立）', 'XSS 题库',
+      bankApplied === R.bank.length, 'applied ok=' + bankApplied + '/' + R.bank.length +
+      (bankApplied < R.bank.length ? '，未生效：' + R.bank.filter(x => x.applied !== 'ok').map(x => x.id + '=' + x.applied).join(',') : ''));
+    t('题库篡改 ' + R.bank.length + ' 例：无一执行', 'XSS 题库', bankExec === 0, 'executed=' + bankExec + '/' + R.bank.length);
+    t('题库篡改 ' + R.bank.length + ' 例：无一注入', 'XSS 题库', bankInj === 0, 'injected=' + bankInj + '/' + R.bank.length);
+    t('主用例、补充用例全程无页面 JS 报错', 'XSS 主用例', pageErrs.length === 0,
+      pageErrs.length ? JSON.stringify(pageErrs).slice(0, 300) : '0 个');
+    log(`  结论：${R.summary.pass ? '通过（0 执行 / 0 注入，且 13 例题库篡改均已生效）' : '未通过，见上面明细'}`);
 
     fs.writeFileSync(path.join(DOCS, 'retest-xss-result.json'), JSON.stringify(R, null, 2), 'utf8');
     fs.writeFileSync(path.join(DOCS, 'retest-xss-log.txt'), LINES.join('\n'), 'utf8');

@@ -360,11 +360,28 @@ const wrongEntry = (o) => Object.assign({ addedAt: TODAY, box: 0, wrongCount: 1,
     log('\n=== 8) 答题会话中作答后再导出（序列化健壮性，查循环引用）===');
     {
       const { ctx, page, logs } = await newCtx(browser);
-      await boot(page, baseState());
+      /* 2026-11-05 修：这里原来点「清单第 1 张卡」再找 .opt 作答。
+         但清单首张卡通常是「选词填空」（词库点选，页面上只有 .wb-chip/.cloze-slot，
+         根本没有 A/B/C/D 的 .opt），于是什么都没答上，草稿自然为空，断言恒失败。
+         现改为显式构造一个只含客观题（阅读选择题）的题组，作答路径才是确定的。
+         注意 plan.v 必须等于当前 PLAN_VERSION，否则会被 ensurePlan 丢弃重算。 */
+      await boot(page, baseState({
+        plan: {
+          date: TODAY, v: PLANV_N,
+          items: [{ key: 'k', type: 'reading', qids: [QID], paperId: PAPER, label: 'R46', done: false, minutes: 0 }],
+        },
+      }));
       const b = page.locator('#planList .card button').first();
-      if (await b.count()) { await b.click(); await page.waitForTimeout(350); }
-      const opt = page.locator('#quizBody .opt').first();
-      if (await opt.count()) { await opt.click(); await page.waitForTimeout(250); }
+      if (await b.count()) { await b.click(); }
+      // 按需加载：点「开始」只是拉起浮层，题目要等卷脚本注入完才渲染 → 必须等 .opt 出现
+      const appeared = await page.waitForSelector('#quizBody .opt', { timeout: 20000 }).then(() => true).catch(() => false);
+      let answered = 0;
+      if (appeared) {
+        await page.locator('#quizBody .opt').first().click();
+        await page.waitForTimeout(250);
+        answered = await page.evaluate(() => document.querySelectorAll('#quizBody .opt.sel').length);
+      }
+      log('   客观题作答：.opt 出现=' + appeared + '，已选中 ' + answered + ' 个');
       await page.screenshot({ path: path.join(DOCS, 'retest-security-draft-inprogress.png') });
       await page.locator('#quizBack').click();
       await page.waitForTimeout(300);
@@ -374,6 +391,7 @@ const wrongEntry = (o) => Object.assign({ addedAt: TODAY, box: 0, wrongCount: 1,
       const txt = fs.readFileSync(p2, 'utf8');
       let parseOk = true, obj = null; try { obj = JSON.parse(txt); } catch (e) { parseOk = false; }
       t('作答+退出后导出 JSON 可解析（无循环引用）', '序列化', parseOk, 'len=' + txt.length);
+      t('作答确实落进了 .opt（前置条件成立，否则下一条会假失败）', '序列化', answered >= 1, 'sel=' + answered + '，.opt 出现=' + appeared);
       t('草稿已写入 plan.items[].draft', '序列化',
         !!obj && !!obj.plan && obj.plan.items.some(it => it.draft && Object.keys(it.draft).length > 0),
         obj && obj.plan ? S(obj.plan.items.map(it => it.draft)) : 'no-plan');

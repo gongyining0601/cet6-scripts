@@ -11,7 +11,7 @@
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
-const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
+const { chromium: loadChromium, EXE, fileUrl, ensurePaper, planVersion } = require('./_env');
 const { chromium } = loadChromium();
 
 const ROOT = path.join(__dirname, '..');
@@ -23,6 +23,9 @@ const pad = n => (n < 10 ? '0' + n : '' + n);
 const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
 const PAPER = '2026-06-1';
+/* 注入 plan 时必须带当前 PLAN_VERSION，否则 ensurePlan 会把整份 plan 丢掉重算
+   （2026-11-05：这里原本写死 v:3，而版本已到 8，注入的清单从未生效过）。 */
+const PLANV = planVersion();
 
 const LINES = [];
 const log = (...a) => { const s = a.join(' '); console.log(s); LINES.push(s); };
@@ -93,8 +96,20 @@ function staticScan() {
     out[k] = { 'index.html': a, 'core.js': b };
   });
   out._innerHTMLLines = (src.match(/\.innerHTML\s*=/g) || []).length;
-  // 单引号包裹的属性（esc 不转义 ' → 必须用双引号）
-  out._singleQuotedAttrInHtmlStrings = (src.match(/=\\?'\s*\+/g) || []).length;
+  /* 2026-11-05 修：原来这两条是"绝对计数为 0"，把 setAttribute / document.write
+     的存在本身当成缺陷。但两者本身并不解析 HTML：
+       · setAttribute 只写属性值，不走 HTML 解析器 —— 只有属性名是事件处理器
+         （on*）或 URL 型属性（href/src/xlink:href）时才构成注入面；
+       · document.write 在这里只用于给 core.js 加版本号（防 SW 旧缓存）。
+     所以改成"语义审计"：只抓真正危险的组合，并保留总数备案（防悄悄膨胀）。 */
+  out._setAttrOnOrUrl = (src.match(/setAttribute\s*\(\s*['"](?:on[a-z]+|href|src|xlink:href)/gi) || []).length;
+  out._setAttrTotal = (src.match(/\.setAttribute\s*\(/g) || []).length;
+  out._documentWriteOther = (src.match(/document\.write\s*\(/g) || []).length -
+    (src.match(/document\.write\s*\(\s*'\s*<script src="core\.js\?v=/g) || []).length;
+  // 单引号包裹的动态属性（esc 不转义 ' → HTML 属性必须用双引号）
+  // 排除 core.js 版本号加载那一行：那里的 `='` 是 JS 字符串的收尾引号，不是 HTML 属性。
+  const srcNoDocWrite = src.split(/\r?\n/).filter(l => l.indexOf('document.write') < 0).join('\n');
+  out._singleQuotedAttrInHtmlStrings = (srcNoDocWrite.match(/=\\?'\s*\+/g) || []).length;
   // 不带 rel=noopener 的 target=_blank
   out._targetBlankNoNoopener = (src.match(/target="_blank"(?![^>]*rel=)/g) || []).length;
   R.staticScan = out;
@@ -113,10 +128,16 @@ function staticScan() {
 
     log('================ 1) 静态奇异 sink 扫描 ================');
     staticScan();
-    t('无 setAttribute / insertAdjacentHTML / document.write / eval / new Function', 'sink 扫描',
-      R.staticScan.setAttribute['index.html'] === 0 && R.staticScan.insertAdjacentHTML['index.html'] === 0 &&
-      R.staticScan.documentWrite['index.html'] === 0 && R.staticScan.evalCall['index.html'] === 0 && R.staticScan.newFunction['index.html'] === 0,
-      JSON.stringify({ setAttribute: R.staticScan.setAttribute, insertAdjacentHTML: R.staticScan.insertAdjacentHTML, documentWrite: R.staticScan.documentWrite }));
+    t('无 insertAdjacentHTML / eval / new Function', 'sink 扫描',
+      R.staticScan.insertAdjacentHTML['index.html'] === 0 &&
+      R.staticScan.evalCall['index.html'] === 0 && R.staticScan.newFunction['index.html'] === 0,
+      JSON.stringify({ insertAdjacentHTML: R.staticScan.insertAdjacentHTML, eval: R.staticScan.evalCall, newFunction: R.staticScan.newFunction }));
+    t('setAttribute 未用于事件处理器或 URL 型属性（只写 data-*/aria-* 等纯值属性）', 'sink 扫描',
+      R.staticScan._setAttrOnOrUrl === 0,
+      'setAttribute 共 ' + R.staticScan._setAttrTotal + ' 处，其中命中 on*/href/src/xlink:href 的 ' + R.staticScan._setAttrOnOrUrl + ' 处');
+    t('document.write 仅用于 core.js 版本号加载（无其它用途）', 'sink 扫描',
+      R.staticScan._documentWriteOther === 0,
+      '非版本号加载的 document.write 共 ' + R.staticScan._documentWriteOther + ' 处');
     t('无外链 target="_blank" 缺 rel=noopener', 'sink 扫描', R.staticScan._targetBlankNoNoopener === 0, String(R.staticScan._targetBlankNoNoopener));
     t('HTML 字符串里没有单引号包裹的动态属性（esc 不转义 \'）', 'sink 扫描', R.staticScan._singleQuotedAttrInHtmlStrings === 0, String(R.staticScan._singleQuotedAttrInHtmlStrings));
 
@@ -126,12 +147,14 @@ function staticScan() {
       const { ctx, page, logs } = await newCtx(browser);
       const st = baseState({
         plan: {
-          date: TODAY, v: 3, items: [
+          date: TODAY, v: PLANV, items: [
             { key: 'l1', type: 'listening', qids: ['2026-06-1-l-1', '2026-06-1-l-2', '2026-06-1-l-3', '2026-06-1-l-4'], paperId: PAPER, label: '听力·长对话 1-4', done: false, minutes: 0 },
           ]
         }
       });
       await boot(page, st);
+      // 按需加载：卷正文不再随首屏注入，篡改前必须先把目标卷拉进来
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，后续篡改用例无法进行');
       const applied = await page.evaluate(() => {
         const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
         b.listeningUrl = 'javascript:window.top.__probe("iframeJsUrl")';
@@ -155,18 +178,24 @@ function staticScan() {
       });
       R.iframe = info;
       log('   iframe 渲染结果：' + JSON.stringify(info));
-      t('listeningUrl 未做协议白名单（原样进入 src 属性）', 'iframe 注入面', info.srcAttr === 'javascript:window.top.__probe("iframeJsUrl")',
-        'src=' + JSON.stringify(info.srcAttr));
-      t('javascript: iframe 未导致父页代码执行（命题期望 __pwned=0，实测 ' + info.pwned + '）', 'iframe 注入面', info.pwned === 0,
-        'tags=' + JSON.stringify(info.tags) + '；iframe 内文档同源可读性=' + info.inner + '；本条 FAIL 即为 N-4 的实测证据');
-      t('iframe 带 sandbox 属性', 'iframe 注入面', !!info.sandbox, info.sandbox);
-      if (info.sandbox && /allow-scripts/.test(info.sandbox) && /allow-same-origin/.test(info.sandbox)) {
-        issue('N-4', '听力 iframe 的 src 来自题库字段且未做协议白名单；叠加 sandbox 的 allow-scripts + allow-same-origin，javascript: URL 可执行父页代码',
-          '高', 'app/index.html:715（iframe，src 取自 esc(listeningUrl)）、:713（<a href> 同一取值）、:661-666（listeningUrlFor 无协议校验）',
-          '把题库的 listeningUrl 改成 javascript: 开头（或投递一份被篡改的题库文件）→ 打开该卷听力组 → 父页 __probe 被调用',
-          'src 与 href 加协议+域名白名单（仅允许 https://english-exam.lazynote.cn），并去掉 sandbox 的 allow-same-origin（听力页只需 allow-scripts）；CSP script-src 不含 unsafe-inline 可作第二道防线',
-          'src=' + JSON.stringify(info.srcAttr) + '；sandbox=' + JSON.stringify(info.sandbox) + '；实测 __pwned=' + info.pwned +
-            '，tags=' + JSON.stringify(info.tags) + '，iframe 内文档同源可读（' + info.inner + '）→ 父页 JS 真的被执行了');
+      /* 2026-11-05 修：这两条原来断言的是"缺陷现场"——要求 javascript: 原样进入 src、
+         且 iframe 带 sandbox，等于把 N-4 的漏洞当成预期行为，产品一修好就判红。
+         产品现在已实现 N-SEC-1 白名单（safeListeningUrl：只认 https + lazynote.cn 主机），
+         javascript: 直接被拦成空串 → 不渲染 iframe。断言改为验证"拦得住"。 */
+      t('javascript: 的 listeningUrl 被白名单拦下（不进入任何 src）', 'iframe 注入面',
+        info.srcAttr === null || !/^javascript:/i.test(String(info.srcAttr)),
+        'src=' + JSON.stringify(info.srcAttr) + '，hasIframe=' + info.hasIframe);
+      t('页面内不存在 javascript: 形式的 src/href', 'iframe 注入面',
+        !info.hasIframe && !/^javascript:/i.test(String(info.linkHref || '')),
+        'linkHref=' + JSON.stringify(info.linkHref));
+      t('伪协议未导致父页代码执行（__pwned=0）', 'iframe 注入面', info.pwned === 0,
+        'tags=' + JSON.stringify(info.tags) + '；iframe 内文档同源可读性=' + info.inner);
+      if (info.pwned > 0) {
+        issue('N-4', '听力 iframe 的 src 来自题库字段且未做协议白名单；javascript: URL 可执行父页代码',
+          '高', 'app/index.html: listenPlayerBlock 的 iframe src',
+          '把题库的 listeningUrl 改成 javascript: 开头 → 打开该卷听力组 → 父页 __probe 被调用',
+          'src 与 href 加协议+域名白名单，并去掉 sandbox 的 allow-same-origin',
+          'src=' + JSON.stringify(info.srcAttr) + '；实测 __pwned=' + info.pwned + '，tags=' + JSON.stringify(info.tags));
       }
       t('无 JS 报错', 'iframe 注入面', logs.pageerror.length === 0, logs.pageerror.join('|'));
       await shot(page, 'iframe-listening-url');
@@ -174,12 +203,12 @@ function staticScan() {
     }
 
     /* ---------------- 3) plan 中的幽灵 qid：清单死锁 ---------------- */
-    log('\n================ 3) plan.items 里的幽灵 qid（M-3 未覆盖 plan）================');
+    log('\n================ 3) plan.items 里的幽灵 qid（现由 pruneGhosts 一并清理）================');
     {
       const { ctx, page, logs } = await newCtx(browser);
       const st = baseState({
         plan: {
-          date: TODAY, v: 3, items: [
+          date: TODAY, v: PLANV, items: [
             { key: 'ghost-1', type: 'reading', qids: ['ghost-9999-r-1', 'ghost-9999-r-2'], paperId: '2026-06-1', label: '幽灵组', done: false, minutes: 0 },
             { key: 'real-1', type: 'reading', qids: ['2026-06-1-r-46'], paperId: PAPER, label: '正常组', done: false, minutes: 0 },
           ]
@@ -198,7 +227,9 @@ function staticScan() {
         return cards.findIndex(c => c.innerText.indexOf('幽灵组') >= 0);
       });
       await page.locator('#planList .card button').nth(idx >= 0 ? idx : 0).click();
-      await page.waitForTimeout(600);
+      // 按需加载：等题目真渲染（否则 optCount 恒 0，会被误读成"0 题死锁组"）
+      await page.waitForSelector('#quizBody .opt, #quizBody .empty', { timeout: 20000 }).catch(() => { });
+      await page.waitForTimeout(300);
       const quiz = await page.evaluate(() => ({
         optCount: document.querySelectorAll('#quizBody .opt').length,
         prog: document.getElementById('quizProg').textContent,
@@ -212,9 +243,16 @@ function staticScan() {
       await page.waitForTimeout(300);
       const st2 = await state(page);
       const ghostAlive = !!(st2.plan && st2.plan.items && st2.plan.items.some(x => x.key === 'ghost-1'));
-      t('幽灵 qid 的 plan 条目在载入后仍存在（normalizeState/pruneGhosts 都不管 plan）', 'M-3 缺口', ghostAlive, JSON.stringify(st2.plan && st2.plan.items.map(x => x.key)));
-      t('幽灵组渲染成 0 题、提交按钮禁用（用户只能退出）', 'M-3 缺口',
-        quiz.optCount === 0 && quiz.submitDisabled === true, JSON.stringify(quiz));
+      const keysNow = JSON.stringify(st2.plan && st2.plan.items.map(x => x.key));
+      /* 2026-11-05 修：这两条原来断言"幽灵 qid 仍在、幽灵组渲染 0 题"（即 N-3 的故障现场）。
+         产品现在已经把 plan.items[].qids 一并交给 pruneGhosts 过滤、并按同口径删掉空组，
+         所以要把断言翻过来：验证"清得掉"。 */
+      t('幽灵 qid 的 plan 条目在载入后被清理（pruneGhosts 已覆盖 plan.items）', 'M-3 缺口',
+        !ghostAlive, 'plan.items 剩余=' + keysNow);
+      t('幽灵组不再出现在清单里（不会出现 0 题死锁组）', 'M-3 缺口',
+        before.hasGhost === false, '清单卡片数=' + before.cards + '，含「幽灵组」=' + before.hasGhost);
+      t('清理后剩余的真实组仍可正常作答（不误删）', 'M-3 缺口',
+        quiz.optCount > 0 || quiz.prog.indexOf('1 题') >= 0, JSON.stringify(quiz));
       const stuck = ghostAlive && quiz.optCount === 0;
       if (stuck) {
         issue('N-3', 'plan 里的幽灵 qid 未随 M-3 一起清理：该组永远做不完，今日清单死锁（连击只能靠忙日打卡续）',
@@ -233,10 +271,11 @@ function staticScan() {
     {
       const { ctx, page, logs } = await newCtx(browser);
       const st = baseState({
-        plan: { date: TODAY, v: 3, items: [{ key: 'tr', type: 'translation', qids: [], paperId: PAPER, done: false, minutes: 0 }] },
+        plan: { date: TODAY, v: PLANV, items: [{ key: 'tr', type: 'translation', qids: [], paperId: PAPER, done: false, minutes: 0 }] },
         essays: { translation: { lastAt: TODAY, text: 'nothing matching here' } },
       });
       await boot(page, st);
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，范文/自查用例无法进行');
       await page.locator('#planList .card button').first().click();
       await page.waitForTimeout(500);
       const applied = await page.evaluate(() => {
@@ -270,6 +309,8 @@ function staticScan() {
     {
       const { ctx, page, logs } = await newCtx(browser);
       await boot(page, baseState());
+      // 按需加载：首屏 BANKS 是空数组，B[0] 直接取会 TypeError → 先注入一卷再演算
+      if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，题库结构用例无法进行');
       // 在页面已加载后删掉 questions，再强制重跑 bankInfo 那段代码不可行（它在 IIFE 内）。
       // 改为：直接评估"若题库某卷缺 questions，加载期会不会白屏"——用 Node 侧静态推演 + 页面侧模拟 unitList/genPlan
       const res = await page.evaluate(() => {
