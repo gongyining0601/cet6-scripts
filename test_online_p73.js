@@ -15,9 +15,12 @@ const URL = 'https://gongyining0601.github.io/cet6-trainer/';
   const check = (name, ok) => { results.push((ok ? 'ok' : 'FAIL') + ' - ' + name); };
 
   await page.goto(URL, { waitUntil: 'commit', timeout: 60000 });
-  await page.waitForFunction(() => window.CET6_BANKS && window.CET6_BANKS.length >= 76, null, { timeout: 540000 });
+  /* 2026-11-06 修：按需加载时代线上首屏只有 meta 骨架（CET6_BANKS 是空的，
+     点卡后才逐卷注入），"等 76 卷全量加载"永远不满足，脚本会挂满 540s 超时。
+     改等 CET6_META 就绪。 */
+  await page.waitForFunction(() => window.CET6_META && window.CET6_META.order && window.CET6_META.order.length >= 76, null, { timeout: 60000 });
   await page.waitForTimeout(1000);
-  check('线上题库 76 套加载(' + (await page.evaluate(() => window.CET6_BANKS.length)) + ' 套)', true);
+  check('线上 meta 骨架就绪(' + (await page.evaluate(() => window.CET6_META.order.length)) + ' 卷目录)', true);
 
   // sw 缓存版本升级后：新访客直接看到登录层
   check('未登录先出登录层', (await page.locator('#loginMask').count()) === 1);
