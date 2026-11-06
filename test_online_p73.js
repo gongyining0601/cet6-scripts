@@ -36,10 +36,12 @@ const URL = 'https://gongyining0601.github.io/cet6-trainer/';
   check('考点表空态提示(新账号无做题记录)', /做题/.test(ptBody));
   await page.screenshot({ path: path.join(__dirname, '..', 'docs/online-p73-stat.png'), fullPage: true });
 
-  // 积极文案
+  // 积极文案（2026-11-06 修：断言不再锁死「忙日打卡」字样——产品文案早已改为
+  // 「⏰ 每天坚持一下，让习惯不断线」，本地与线上一致；旧断言是在对不存在的文案打分）
   await page.locator('nav button[data-p="today"]').click(); await page.waitForTimeout(400);
   const floorTxt = await page.locator('#floorBtn').textContent();
-  check('忙日打卡按钮文案: ' + floorTxt.trim().slice(0, 22), /忙日打卡/.test(floorTxt) && !/躺平|保底/.test(floorTxt));
+  check('打卡按钮文案积极且无负面词: ' + floorTxt.trim().slice(0, 22),
+    floorTxt.trim().length > 0 && /坚持|习惯|不断|打卡/.test(floorTxt) && !/躺平|保底/.test(floorTxt));
   const bodyTxt = await page.evaluate(() => document.body.textContent);
   check('线上全页面无「躺平」「保底」', bodyTxt.indexOf('躺平') < 0 && bodyTxt.indexOf('保底') < 0);
   await page.screenshot({ path: path.join(__dirname, '..', 'docs/online-p73-today.png'), fullPage: true });
