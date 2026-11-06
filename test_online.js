@@ -35,6 +35,11 @@ function localVersion() {
   const localVer = localVersion();
   check('线上版本与本地一致（部署未滞后）: 线上=' + onlineVer + ' 本地=' + localVer, onlineVer === localVer && !!onlineVer);
 
+  // 部署树洁净度：bank/json/ 是本地开发用的原始素材（77 个 / 9MB），
+  // app/.gitignore 已排除，不该随站点发布。若哪天整树同步误带，这条会立刻报红。
+  const jsonProbe = await page.request.get(URL + 'bank/json/2015-06-1.json', { timeout: 20000 });
+  check('部署树未暴露原始 JSON 素材（HTTP ' + jsonProbe.status() + '）', jsonProbe.status() === 404);
+
   // 登录（4 位编号）
   await page.locator('#phoneInput').fill('9203');
   await page.locator('#loginBtn').click();
