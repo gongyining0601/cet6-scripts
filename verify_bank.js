@@ -69,6 +69,23 @@ chk('解析【答案】与字段一致', mismatch.length === 0, '不一致 ' + m
 chk('每道客观题都有解析', noAnalysis.length === 0, '无解析 ' + noAnalysis.length + ' 条' + (noAnalysis.length ? ' → ' + noAnalysis.slice(0, 5) : ''));
 chk('写译题面+范文齐全', essay === BANKS.length, essay + '/' + BANKS.length);
 
+/* ---------------- 断言：meta 骨架必须按 order（新→旧）展开 ----------------
+   变异体 #3：把 C.unitsOf 里的 src.order 换成 Object.keys(papers) 后，
+   排期会从最老的 2015 卷开始，用户看到的题目顺序不再「由新到旧」。
+   meta.js 的 papers 键序恰好是旧→新，所以这里构造一个 order 与键序
+   刻意相反的骨架：只有真的读了 order，才会先输出 new-a。 */
+(function () {
+  var meta = {
+    papers: {
+      '2015-06-1': { units: [{ qid: 'old-a' }] },
+      '2026-06-1': { units: [{ qid: 'new-a' }] }
+    },
+    order: ['2026-06-1', '2015-06-1']
+  };
+  var ids = C.unitsOf(meta).map(function (u) { return u.qid; });
+  chk('meta 卷序按 order 新→旧展开', ids.join(',') === 'new-a,old-a', '实际=' + ids.join(','));
+})();
+
 /* 听力音频链接是"内容完备性"指标而非错误：部分卷听力与别卷共用（listeningSharedWith），
    没有自己的 URL 是设计使然，故只作为信息输出，不计入失败。 */
 console.log('fact 听力音频链接存在: ' + audio + '/' + BANKS.length + '（其余卷与别卷共用听力，见 listeningSharedWith）');

@@ -123,16 +123,35 @@ async function answerAllInQuiz(page) {
 }
 
 async function ensurePaper(page, pid, timeoutMs) {
-  return page.evaluate(({ pid, prefix, g, t }) => new Promise((res) => {
+  return page.evaluate(({ pid, prefix, g, t }) => new Promise((resolve) => {
     const has = () => (window[g] || []).some((b) => b.id === pid);
-    if (has()) return res(true);
-    const s = document.createElement('script');
-    s.src = 'bank/' + prefix + pid + '.js';
-    s.onload = () => res(has());
-    s.onerror = () => res(false);
-    document.head.appendChild(s);
-    setTimeout(() => res(has()), t || 15000);
-  }), { pid, prefix: BANK_PREFIX, g: BANK_GLOBAL, t: timeoutMs });
+    if (has()) return resolve(true);
+    const url = 'bank/' + prefix + pid + '.js';
+    const timer = setTimeout(() => resolve(has()), t);
+    const finish = (v) => { clearTimeout(timer); resolve(v); };
+    // 2026-11-12：线上约 150KB 卷用 <script src> 动态注入会挂死，
+    // onload/onerror 都不触发，导致线上冒烟偶发红（单跑却全绿）。
+    // http(s) 下与产品 loadPaperScript 同口径，改走 fetch + 内联 script；
+    // file://（绝大多数本地用例）与 fetch 失败时仍走原来的 <script src>。
+    function viaTag() {
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = () => finish(has());
+      s.onerror = () => finish(false);
+      document.head.appendChild(s);
+    }
+    if (location.protocol !== 'file:' && typeof fetch === 'function') {
+      fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(code => {
+          const s = document.createElement('script');
+          s.textContent = code;
+          document.head.appendChild(s);
+          finish(has());
+        }).catch(() => viaTag());
+    } else {
+      viaTag();
+    }
+  }), { pid, prefix: BANK_PREFIX, g: BANK_GLOBAL, t: timeoutMs || 30000 });
 }
 
 async function ensureAllPapers(page, timeoutMs) {

@@ -63,7 +63,7 @@ const KEY = 'cet6_p1_state_v1_' + UID;
   check('今日清单里有写译卡（注入生效）', hasEssayCard);
   if (hasEssayCard) {
     await essayCard.locator('button').first().click();
-    try { await page.waitForSelector('#essayTa', { timeout: 20000 }); } catch (e) { }
+    try { await page.waitForSelector('#essayTa', { timeout: 35000 }); } catch (e) { }
     const taOk = (await page.locator('#essayTa').count()) > 0;
     check('写译答题区渲染', taOk);
     if (taOk) {

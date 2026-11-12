@@ -11,10 +11,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const ROOT = path.join(__dirname, '..');
 const CORE = path.join(ROOT, 'app', 'core.js');
-const CORE_URL = 'file:///' + CORE.replace(/\\/g, '/');
+/* 跨平台坑：以前写死 'file:///' + 路径，在 Linux runner 上路径本身以 / 开头，
+   会拼成 file:////home/...（四道斜杠），V8 覆盖率里的 url 对不上 →
+   覆盖率恒为 0% 且 CI 必然 GATE FAIL。统一走标准库 pathToFileURL。 */
+const CORE_URL = pathToFileURL(CORE).href;
 
 /* ---------- 1. 起带覆盖率的子进程跑两个 core 测试 ---------- */
 function runWithCoverage(script, covDir) {
@@ -132,8 +136,14 @@ function parseCoverage(covFiles, targetUrl) {
   const LINE_MIN = 80, BRANCH_MIN = 80;
   const lineOk = cov.linePct >= LINE_MIN;
   const branchOk = cov.branchPct >= BRANCH_MIN;
-  console.log('\n  行覆盖 ≥ ' + LINE_MIN + '%: ' + (lineOk ? 'PASS' : 'FAIL'));
-  console.log('  分支覆盖 ≥ ' + BRANCH_MIN + '%: ' + (branchOk ? 'PASS' : 'FAIL'));
+
+  /* 输出标准断言行（ok - / FAIL - 前缀），让 run_all.js 能把本门禁的结果
+     计成"自己真实的 2 条断言"。以前这里只有给人看的 PASS/FAIL 文本，
+     自身断言数为 0，run_all 的 RE_SUM 反而把子进程回显的
+     "20273 ok / 0 fail" 误当成成绩 —— 同一批题库契约断言被重复计了一遍。 */
+  const mark = (good) => good ? 'ok' : 'FAIL';
+  console.log('\n' + mark(lineOk) + ' - core.js 行覆盖 ≥ ' + LINE_MIN + '%（实测 ' + cov.linePct.toFixed(1) + '%，' + cov.lineHit + '/' + cov.lineTotal + '）');
+  console.log(mark(branchOk) + ' - core.js 分支覆盖 ≥ ' + BRANCH_MIN + '%（实测 ' + cov.branchPct.toFixed(1) + '%，' + cov.branchHit + '/' + cov.branchTotal + '）');
 
   // 清理
   try { covFiles.forEach(f => fs.unlinkSync(f)); fs.rmdirSync(covDir); } catch (e) {}

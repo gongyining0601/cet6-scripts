@@ -87,8 +87,20 @@ const TESTS = [
   { f: 'test_security_extra.js', g: 'browser', min: 8, d: '安全补充用例' },
   { f: 'test_retest_interaction.js', g: 'browser', min: 30, d: '复测轮 · 交互状态机' },
   { f: 'test_round3_interaction.js', g: 'browser', min: 150, d: '第三轮 · 交互回归' },
+  // 2026-11-12：线上写译卡缺陷的本地可复现回归（本机临时 HTTP 服务器，
+  // 覆盖 <script src> 挂死 → fetch 通道修复；不依赖公网）
+  { f: 'test_paper_load_http.js', g: 'browser', min: 8, d: 'HTTP 按需加载大卷（线上缺陷回归）' },
+  // 桌面 WebKit + iPhone 视口。引擎缺失判 FAIL（不静默跳过），但结论按「部分证据」记
+  { f: 'test_webkit.js', g: 'browser', min: 10, d: 'WebKit 引擎 + iPhone 视口（非 iOS 真机）' },
 
-  /* --- 网络/离线/兼容：依赖外部条件，失败注明为条件性 --- */
+  /* --- 网络/离线/兼容：依赖外部条件，失败注明为条件性 ---
+     例外：线上版本一致性单独拆成 test_deploy_version.js 且**不带 opt**。
+     「部署滞后」是交付事故（曾长期线上 v32 / 本地 v33 却 GATE PASS），
+     不能和"网络冒烟偶尔不通"一起被条件性豁免吞掉。 */
+  { f: 'test_deploy_version.js', g: 'net', min: 1, d: '线上版本一致性（必过，防部署滞后）' },
+  // 只查版本号挡不住「version.js 更新了、index.html/core.js/题库仍是旧的」，
+  // 故加一道逐字节内容比对，含 app HEAD 树核对与 404 页面识别
+  { f: 'verify_deploy.js', g: 'net', min: 30, d: '线上文件内容逐字节一致（必过，防半吊子部署）' },
   { f: 'test_online.js', g: 'net', min: 1, d: '在线环境', opt: 1 },
   { f: 'test_online_p71.js', g: 'net', min: 1, d: '在线 P7-1', opt: 1 },
   { f: 'test_online_p72.js', g: 'net', min: 1, d: '在线 P7-2', opt: 1 },
@@ -119,14 +131,20 @@ const argv = process.argv.slice(2);
 const argOf = k => { const h = argv.find(a => a.startsWith('--' + k + '=')); return h ? h.split('=').slice(1).join('=') : null; };
 const GROUP = argOf('group') || 'all';
 const ONLY = argOf('only');
+/* --skip=a.js,b.js：CI 等"只有两个仓"的环境里，显式排除依赖完整多仓布局的用例。
+   被跳过的用例压根不进 picked，因此不参与汇总、也不写 baseline——
+   「没跑」不会被记成「通过」。结果 JSON 里会留下 skipped 清单便于复核。 */
+const SKIP = new Set((argOf('skip') || '').split(',').map(s => s.trim()).filter(Boolean));
 const TIMEOUT = Number(argOf('timeout') || 480000);
 const LIST_ONLY = argv.includes('--list');
 
 const picked = TESTS.filter(t => {
   if (GROUP !== 'all' && t.g !== GROUP) return false;
   if (ONLY && t.f.indexOf(ONLY) < 0) return false;
+  if (SKIP.has(t.f)) return false;
   return fs.existsSync(path.join(SCRIPTS, t.f));
 });
+const SKIPPED = TESTS.filter(t => SKIP.has(t.f)).map(t => t.f);
 
 if (LIST_ONLY) {
   console.log('共 ' + picked.length + ' 个用例：');
@@ -149,14 +167,23 @@ const RE_OK = /^\s*\[?\s*(?:(?:ok|pass)\b|√|✓|✅)/i;
 const RE_NO = /^\s*\[?\s*(?:(?:fail|failed|error)\b|✗|×|❌)/i;
 const RE_SUM = /(\d+)\s*ok\s*\/\s*(\d+)\s*fail/gi;
 
+/* 聚合类脚本（test_coverage.js）会把子进程的汇总行原样回显成
+   "xxx.js exit: 0 | tail: ===== ... 20273 ok / 0 fail ====="。
+   那是**别人的成绩**，不是本脚本的断言；不过滤就会被 RE_SUM 重复计一遍
+   （历史事故：42001 条断言里 20273 条是重复计数，且被写进了 baseline）。 */
+const RE_ECHO = /^\s*[\w.-]+\.js\s+exit:.*\|\s*tail:/i;
+
 function parse(out) {
   let ok = 0, fail = 0;
-  out.split(/\r?\n/).forEach(l => {
+  const lines = out.split(/\r?\n/).filter(l => !RE_ECHO.test(l));
+  lines.forEach(l => {
     if (RE_OK.test(l)) ok++;
     else if (RE_NO.test(l)) fail++;
   });
+  const clean = lines.join('\n');
   let m, sOk = 0, sFail = 0;
-  while ((m = RE_SUM.exec(out))) { sOk = Math.max(sOk, +m[1]); sFail = Math.max(sFail, +m[2]); }
+  RE_SUM.lastIndex = 0; // 全局正则，显式复位避免跨用例残留 lastIndex
+  while ((m = RE_SUM.exec(clean))) { sOk = Math.max(sOk, +m[1]); sFail = Math.max(sFail, +m[2]); }
   if (sOk > ok) ok = sOk;
   if (sFail > fail) fail = sFail;
   return { ok, fail };
@@ -263,7 +290,7 @@ function runOne(t) {
 
   try {
     fs.writeFileSync(path.join(DOCS, 'run-all-result.json'), JSON.stringify({
-      ts: new Date().toISOString(), group: GROUP, only: ONLY || null, timeoutMs: TIMEOUT,
+      ts: new Date().toISOString(), group: GROUP, only: ONLY || null, skipped: SKIPPED, timeoutMs: TIMEOUT,
       totals: {
         cases: rows.length, pass: passed, assertions: totalAssert, ok: totalOk, fail: totalFail,
         fakeGreen: fake.length, hardFailed: hard.length,

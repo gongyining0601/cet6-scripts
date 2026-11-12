@@ -634,6 +634,31 @@ function listenItem(extra) {
       await ctx.close();
     }
 
+    /* ============== 14) 坏档隔离：备份 + 对外可观测标记 ==============
+       变异体 #2 把 CORE.lastCorruptBackup = bk 注释掉后，原始存档仍被备份，
+       但调用方再也拿不到「旧记录被隔离了」这个信号，界面无从提示用户。
+       所以这两条必须分开断言：只查备份文件会漏掉这个回归。 */
+    log('\n============== 14) 坏档隔离（备份与可观测标记）==============');
+    {
+      const mem = {};
+      const storage = {
+        getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null),
+        setItem: (k, v) => { mem[k] = String(v); }
+      };
+      const KEY = 'cet6_p1_state_v1_9999';
+      const rawBroken = '{not-json';
+      storage.setItem(KEY, rawBroken);
+      const st = CORE.loadState(storage, KEY, []);
+      const bk = KEY + '_corrupted_' + CORE.todayStr();
+      t('坏档原始串被隔离备份', 'N-SEC-2', mem[bk] === rawBroken, '备份键=' + bk);
+      t('坏档隔离对外可观测（lastCorruptBackup）', 'N-SEC-2', CORE.lastCorruptBackup === bk, '实际=' + String(CORE.lastCorruptBackup));
+      t('坏档后返回全新状态而非崩溃', 'N-SEC-2', !!st && st.version === 1 && !!st.history && Object.keys(st.history).length === 0);
+      t('干净档不会误报隔离', 'N-SEC-2', (function () {
+        CORE.loadState(storage, 'cet6_p1_state_v1_clean', []);
+        return CORE.lastCorruptBackup === null;
+      })());
+    }
+
     const failed = R.cases.filter(c => !c.pass);
     R.summary = { total: R.cases.length, fail: failed.length, failed: failed.map(f => f.group + ' · ' + f.name + ' → ' + f.detail) };
     log('\n================ 汇总 ================');

@@ -1,4 +1,13 @@
 // scripts/test_timer.js —— P2 考场限时：倒计时/断点续做/达标记录/统计/写译计时/超时红灯
+//
+// 2026-11-12 稳定性修复：本用例曾出现「套件内 9/10 FAIL、单跑 5 次 10/10 PASS」。
+// 根因是 7 处断言把「随墙上时钟变化的量」写成了等值或极窄窗口：
+//   · 初始倒计时必须正好 04:48（页面慢 1 秒就变 04:47）
+//   · 续做剩余时间只放行 04:40~04:47（8 秒窗口）
+//   · 写作 30:00 / 恢复 00:03 同样做等值断言
+//   · 结果卡与统计页的用时只放行 00:0~9（超过 9 秒就挂）
+// 统一改为「语义 + 合理窗口」判定：仍能抓住没启动/时长算错/没有续做/没达标，
+// 但不再随机器负载随机翻脸。
 const path = require('path');
 const { chromium: loadChromium, EXE } = require('./_env');
 const { chromium } = loadChromium();
@@ -6,6 +15,15 @@ const ROOT = path.join(__dirname, '..', 'app');
 const URL = 'file://' + path.join(ROOT, 'index.html');
 const results = [];
 const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + name + (extra ? ' | ' + extra : ''));
+
+// '⏱ 04:48' → 288 秒；解析不出来返回 -1
+const clockSecs = (s) => {
+  const m = /(\d\d):(\d\d)/.exec(String(s || ''));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : -1;
+};
+const FULL_LISTEN = 4 * 72;   // 04:48 = 288s
+const FULL_WRITING = 30 * 60; // 30:00 = 1800s
+const CLOCK = /\d{2}:\d{2}/;  // 用时显示不再掐死在 00:0x
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -45,19 +63,29 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   await cardsA.nth(0).locator('button').click();
   await page.waitForSelector('#quiz.show', { timeout: 20000 });
   const t0 = await page.locator('#quizTimer').textContent();
-  check('听力组初始倒计时 04:48（4题×72s）', t0.trim() === '⏱ 04:48', t0.trim());
+  const t0Secs = clockSecs(t0);
+  // 允许首屏渲染耗掉最多 18 秒；仍能抓住「计时器没启动」和「4×72s 算错」
+  check('听力组初始倒计时约 04:48（4题×72s）',
+    t0Secs >= FULL_LISTEN - 18 && t0Secs <= FULL_LISTEN,
+    t0.trim() + ' (' + t0Secs + 's, 期望 ≤288 且 ≥270)');
   await page.waitForTimeout(2600);
   await page.screenshot({ path: path.join(ROOT, '..', 'docs', 'ui-16-timer.png'), fullPage: true });
   const t1 = await page.locator('#quizTimer').textContent();
-  const m1 = /⏱ 04:(\d\d)/.exec(t1.trim());
-  check('倒计时随时间递减', !!m1 && Number(m1[1]) < 48, t1.trim());
-  // 断点续做：退出 → 重进 → 剩余时间延续（应小于 04:48）
+  const t1Secs = clockSecs(t1);
+  check('倒计时随时间递减', t1Secs >= 0 && t1Secs < t0Secs,
+    t1.trim() + ' (' + t1Secs + 's < ' + t0Secs + 's)');
+  // 断点续做：退出 → 重进 → 剩余时间延续（不回到 04:48）
   await page.locator('#quizBack').click();
   await page.waitForSelector('#quiz', { state: 'hidden' });
   await cardsA.nth(0).locator('button').click();
   await page.waitForSelector('#quiz.show');
   const t2 = await page.locator('#quizTimer').textContent();
-  check('断点续做保留剩余时间', /⏱ 04:4[0-7]/.test(t2.trim()), t2.trim());
+  const t2Secs = clockSecs(t2);
+  // 语义：比满额少（说明没重置），且没有比退出前多（说明没倒退）；
+  // +2s 容差给「从存档恢复、加载期间不扣时」的实现。
+  check('断点续做保留剩余时间',
+    t2Secs > 0 && t2Secs < FULL_LISTEN && t2Secs <= t1Secs + 2,
+    t2.trim() + ' (' + t2Secs + 's, 退出前 ' + t1Secs + 's, 满额 288s)');
   // 已答 4/4 → 提交 → 结果卡用时与达标
   // 按需加载：卷动态加载完成后渲染选项，等选项出现再从页面点选正确答案作答
   await page.waitForSelector('#quizBody .opt', { timeout: 20000 });
@@ -72,13 +100,17 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   await page.locator('#groupSubmit').click();
   await page.waitForSelector('#groupBar');
   const barA = (await page.locator('#groupBar').textContent()) || '';
-  check('结果卡显示用时与达标', /用时 00:0\d|00:0\d \/ 标准 04:48/.test(barA) && /✓ 达标/.test(barA), barA.replace(/\s+/g, ' '));
+  check('结果卡显示用时与达标',
+    /用时\s*\d{2}:\d{2}\s*\/\s*标准\s*04:48/.test(barA) && /✓ 达标/.test(barA),
+    barA.replace(/\s+/g, ' '));
   await page.locator('#groupDone').click();
   // 统计页限时达标卡
   await page.locator('nav button[data-p="stat"]').click();
   await page.waitForSelector('#statGrid');
   const gridA = (await page.locator('#statGrid').textContent()) || '';
-  check('统计页限时达标 1/1 与平均用时', /1\/1 组\s*限时达标/.test(gridA) && /00:0\d\s*平均每组用时/.test(gridA), gridA.replace(/\s+/g, ' '));
+  check('统计页限时达标 1/1 与平均用时',
+    /1\/1 组\s*限时达标/.test(gridA) && new RegExp('\\d{2}:\\d{2}\\s*平均每组用时').test(gridA),
+    gridA.replace(/\s+/g, ' '));
 
   // --- 场景 B：写作组计时 30 分钟 ---
   await seedPlan([{ type: 'writing' }]);
@@ -86,7 +118,10 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   await cardsB.nth(0).locator('button').click();
   await page.waitForSelector('#essayTa', { timeout: 20000 }); // 按需加载：写作卷（2020-07-1）动态加载后渲染题面
   const tW = await page.locator('#quizTimer').textContent();
-  check('写作组倒计时 30:00', tW.trim() === '⏱ 30:00', tW.trim());
+  const tWSecs = clockSecs(tW);
+  check('写作组倒计时约 30:00',
+    tWSecs >= FULL_WRITING - 20 && tWSecs <= FULL_WRITING,
+    tW.trim() + ' (' + tWSecs + 's, 期望 ≤1800 且 ≥1780)');
   // 写作组完成也记录用时
   await page.locator('#essayTa').fill('A practice essay for the timer test, long enough to save a draft.');
   await page.locator('#essayDone').click();
@@ -101,7 +136,9 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   await cardsC.nth(0).locator('button').click();
   await page.waitForSelector('#essayTa', { timeout: 20000 });
   const tC0 = await page.locator('#quizTimer').textContent();
-  check('恢复剩余时间 00:03', tC0.trim() === '⏱ 00:03', tC0.trim());
+  const tC0Secs = clockSecs(tC0);
+  check('恢复剩余时间约 00:03', tC0Secs >= 0 && tC0Secs <= 3,
+    tC0.trim() + ' (' + tC0Secs + 's, 期望 0~3)');
   await page.waitForTimeout(5200);
   const cls = await page.locator('#quizTimer').getAttribute('class');
   const tC1 = await page.locator('#quizTimer').textContent();

@@ -13,6 +13,7 @@
      node deploy_pages.js                  plan  ：只读推演，打印期望清单/差异/校验，不改任何文件
      node deploy_pages.js --apply          apply ：整树同步 + 排除 + 校验 + 本地提交（不推公网）
      node deploy_pages.js --push           push  ：apply + 推送 cet6-trainer + 轮询 Pages 生效
+                                                 + **逐文件校验线上内容与源树一致**（失败即非零退出）
 
    常用参数：
      --worktree <path>   指定部署工作区（默认 <cet6>/.deploy/cet6-trainer，
@@ -26,6 +27,9 @@
      · 排除清单是硬规则：即使哪天 app/.gitignore 改了、源树误带素材，脚本也会二次剔除并校验。
      · 校验不通过绝不提交；部署树与 HEAD 无差异时绝不制造空提交。
      · 推公网必须显式 --push；网络不通时可先 --apply 生成提交，通了再手工 push。
+     · git push 被代理 502 拦截时自动回退 deploy_via_api.js（gh REST API 精确重放，
+       远端 commit sha 与本地一致，不产生分叉）；两条通道都失败才中止。
+     · 推送后强制跑 verify_deploy.js 做逐文件内容比对，校验不过即非零退出。
    ============================================================================ */
 const fs = require('fs');
 const path = require('path');
@@ -268,15 +272,32 @@ function pushAfter(result) {
   say('\n[推送公网]');
   if (result.noChange) {
     const ahead = git(WORKTREE, ['log', '--oneline', 'origin/main..HEAD'], { allowFail: true }).trim();
-    if (!ahead) { ok('部署仓库无待推提交，线上已是最新，跳过推送'); return; }
+    if (!ahead) {
+      ok('部署仓库无待推提交，线上已是最新，跳过推送');
+      verifyAfterPush(); // 没推也要确认线上内容与源树一致，不能靠"没变化"蒙混过关
+      return;
+    }
     warn('本次无新提交，但有 ' + ahead.split('\n').length + ' 个历史提交待推，继续推送');
   }
   try {
     git(WORKTREE, ['push', 'origin', 'HEAD:main']);
     ok('已推送 cet6-trainer main');
   } catch (e) {
-    die('推送失败（网络/代理通道），本地提交仍在，通道恢复后执行：\n'
-      + '  git -C "' + WORKTREE + '" push origin HEAD:main\n原因：' + e.message);
+    warn('git 通道推送失败：' + String(e.message || e).split('\n')[0].slice(0, 140));
+    say('  本机代理常见 CONNECT 502；改用 GitHub REST API 精确重放同一个提交…');
+    try {
+      const out = cp.execFileSync(process.execPath,
+        [path.join(__dirname, 'deploy_via_api.js'), '--worktree', WORKTREE],
+        { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
+      out.trim().split('\n').forEach(l => say('  ' + l));
+      ok('已通过 API 通道推送（远端 commit sha 与本地一致，无分叉）');
+    } catch (e2) {
+      const detail = String((e2.stdout || '') + (e2.stderr || '')).trim();
+      if (detail) detail.split('\n').forEach(l => say('  ' + l));
+      die('两条推送通道都失败，本地提交仍在，通道恢复后执行：\n'
+        + '  node ' + path.join(__dirname, 'deploy_via_api.js') + '\n'
+        + '  或 git -C "' + WORKTREE + '" push origin HEAD:main');
+    }
   }
 
   say('\n[轮询 Pages 生效]');
@@ -284,11 +305,36 @@ function pushAfter(result) {
   for (let i = 1; i <= 8; i++) {
     const v = onlineVersion();
     say('  [' + i + '/8] 线上 version.js = ' + (v || '不可达'));
-    if (v === target) { ok('Pages 已更新到 ' + target + '，可跑 net 组冒烟：node run_all.js --only=online'); return; }
+    if (v === target) {
+      ok('Pages 已更新到 ' + target);
+      verifyAfterPush();
+      return;
+    }
     // 同步等待 30s（Atomics.wait 不占 CPU；Pages 有 max-age=600 + CDN 缓存）
     if (i < 8) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000);
   }
-  warn('4 分钟内未确认线上版本（CDN 缓存或网络），请稍后手工核对 ' + PAGES_URL + 'version.js');
+  // 「无法确认」不等于「通过」：以前这里只 warn，部署失败也能一路绿灯。
+  bad('4 分钟内未确认线上版本（CDN 缓存或网络），无法确认部署成功');
+  say('  请稍后手工核对 ' + PAGES_URL + 'version.js，或重跑 node verify_deploy.js');
+  process.exitCode = 1;
+}
+
+/** 部署后校验：version.js 一致只是必要条件，还要确认 index.html/core.js/题库
+ *  等文件内容真的跟着更新了（避免「版本变了、内容没变」的半吊子发布）。 */
+function verifyAfterPush() {
+  say('\n[部署后校验：线上内容与源树逐文件比对]');
+  try {
+    const out = cp.execFileSync(process.execPath, [path.join(__dirname, 'verify_deploy.js')],
+      { encoding: 'utf8', timeout: 300000, stdio: ['ignore', 'pipe', 'pipe'] });
+    out.trim().split('\n').forEach(l => say('  ' + l));
+    ok('线上内容与源树一致，部署闭环完成');
+  } catch (e) {
+    const out = String((e.stdout || '') + (e.stderr || '')).trim();
+    if (out) out.split('\n').forEach(l => say('  ' + l));
+    bad('部署后内容校验未通过（可能有文件未随版本发布，或 CDN 节点尚未同步）');
+    say('  处理：稍后重跑 node verify_deploy.js；持续失败请检查 Pages 构建状态与源仓未提交改动。');
+    process.exitCode = 1;
+  }
 }
 
 function help() {
