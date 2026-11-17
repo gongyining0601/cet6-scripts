@@ -92,7 +92,7 @@ function pct(p) {
 // 造一份接近真实的 state：多年 history + 大量 papers / wrongbook
 function makeState(seed) {
   const pad = n => String(n).padStart(2, '0');
-  const d = new Date(2020, 0, 1 + seed);
+  const _d = new Date(2020, 0, 1 + seed);
   const history = {}, papers = {}, wrongbook = {};
   for (let i = 0; i < 400; i++) {
     const day = new Date(2020, 0, 1 + i);
@@ -123,7 +123,9 @@ function makeState(seed) {
   const child = spawn(process.execPath, [SERVER], {
     cwd: __dirname,
     env: Object.assign({}, process.env, {
-      SYNC_TOKEN: TOKEN, SYNC_PORT: String(PORT), SYNC_DATA: DATA, SYNC_NS: 'cet6'
+      SYNC_TOKEN: TOKEN, SYNC_PORT: String(PORT), SYNC_DATA: DATA, SYNC_NS: 'cet6',
+      // 压测用共享口令模式；安全修复后该模式须显式 opt-in（见 sync-server.js 启动校验）
+      SYNC_ALLOW_SHARED: '1'
     }),
     stdio: ['ignore', 'pipe', 'pipe']
   });

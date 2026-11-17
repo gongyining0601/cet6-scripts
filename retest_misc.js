@@ -64,7 +64,7 @@ async function boot(page, stateObj) {
   await page.waitForTimeout(200);
 }
 const state = page => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('cet6_p1_state_v1_9203') || 'null'); } catch (e) { return null; } });
-const toastText = page => page.evaluate(() => (document.getElementById('toast') || {}).textContent || '');
+const _toastText = page => page.evaluate(() => (document.getElementById('toast') || {}).textContent || '');
 async function shot(page, n) { try { await page.screenshot({ path: path.join(DOCS, 'retest-security-' + n + '.png') }); } catch (e) { } }
 function baseState(e) { return Object.assign({ version: 1, history: {}, papers: {}, wrongbook: {}, plan: null, essays: {}, hl: {}, lastBackup: '' }, e || {}); }
 
@@ -155,7 +155,7 @@ function staticScan() {
       await boot(page, st);
       // 按需加载：卷正文不再随首屏注入，篡改前必须先把目标卷拉进来
       if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，后续篡改用例无法进行');
-      const applied = await page.evaluate(() => {
+      const _applied = await page.evaluate(() => {
         const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
         b.listeningUrl = 'javascript:window.top.__probe("iframeJsUrl")';
         return b.listeningUrl;
@@ -278,7 +278,7 @@ function staticScan() {
       if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，范文/自查用例无法进行');
       await page.locator('#planList .card button').first().click();
       await page.waitForTimeout(500);
-      const applied = await page.evaluate(() => {
+      const _applied = await page.evaluate(() => {
         const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
         b.translation.sample = 'Alpha beta gamma. <img src=x onerror="__probe(essaySample)"> delta epsilon';
         return b.translation.sample;

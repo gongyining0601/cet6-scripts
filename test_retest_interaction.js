@@ -112,7 +112,7 @@ function PAGE_API() {
       answerOf: function (qid) { var q = window.CET6Core.findQ(window.CET6_BANKS, qid); return q ? q.answer : null; },
       // 构造 state 并写入 localStorage（不 reload，由 Node 侧控制）
       seed: function (spec) {
-        var C = window.CET6Core, B = window.CET6_BANKS || [];
+        var C = window.CET6Core, _B = window.CET6_BANKS || [];
         var today = C.todayStr();
         var items = (spec.items || []).map(function (s, ix) {
           var qids = s.qids || window.__t.qidsOf(s.paperId, s.kind, s.qnoFrom, s.qnoTo);
@@ -294,7 +294,7 @@ async function navEntry(page) {
 }
 
 function avg(a) { return a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 10) / 10 : null; }
-function med(a) { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }
+function _med(a) { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }
 function rng(a) { return a.length ? [Math.min.apply(null, a), Math.max.apply(null, a)] : null; }
 
 async function openFirstOpenGroup(page, anyKind) {
@@ -817,7 +817,7 @@ async function sectionB() {
     const today = await page.evaluate(() => window.__scan());
     await shot(page, 'vp-' + vp.name + '-today');
     // 答题页
-    const o = await openFirstOpenGroup(page);
+    const _o = await openFirstOpenGroup(page);
     // 等待题目真的渲染出来（按需加载：#quiz.show 不代表 .opt 已挂载，
     // 中等视口偶发 opts=0 就是这里抢跑了）
     await page.waitForFunction(() => {
@@ -901,7 +901,7 @@ async function sectionB() {
     await page.waitForFunction(() => { const e = document.getElementById('todayLabel'); return !!e && e.textContent.length === 10; }, null, { timeout: 20000 });
     const afterLogin = await page.evaluate(() => ({ user: window.__t.user(), plan: document.querySelectorAll('#planList .card').length, summary: document.getElementById('planSummary').textContent }));
     // 答题
-    const o = await openFirstOpenGroup(page);
+    const _o = await openFirstOpenGroup(page);
     const res = await completeOpenGroup(page);
     const afterQuiz = await page.evaluate(() => { const s = window.__t.state(); return { papers: Object.keys(s.papers).length, minutes: (s.history[window.__t.today()] || {}).minutes, qCount: (s.history[window.__t.today()] || {}).qCount }; });
     // 深色 + 刷新保持
@@ -1051,7 +1051,7 @@ async function sectionC() {
     await page.evaluate(() => window.__t.answerSome(3, 'first'));
     const before = await page.evaluate(() => ({ quiz: window.__t.quiz(), st: window.__t.state() }));
     const draftBefore = Object.keys(planItemOf(before.st, 'g1').draft || {}).length;
-    const timerBefore = parseClock(before.quiz.timer);
+    const _timerBefore = parseClock(before.quiz.timer);
     await page.waitForTimeout(1500);
     const timerAtReload = parseClock((await page.evaluate(() => window.__t.quiz())).timer);
     await page.reload({ waitUntil: 'commit' }); await waitInit(page);
@@ -1091,11 +1091,11 @@ async function sectionC() {
     await page.waitForSelector('#groupDone', { timeout: 10000 });
     const st1 = await getState(page);
     const q0 = Object.keys(st1.papers)[0];
-    const seen1 = st1.papers[q0].seen, min1 = (st1.history[Object.keys(st1.history)[0]] || {}).minutes;
+    const seen1 = st1.papers[q0].seen, _min1 = (st1.history[Object.keys(st1.history)[0]] || {}).minutes;
     await page.reload({ waitUntil: 'commit' }); await waitInit(page);
     const stR = await getState(page);
     const itR = planItemOf(stR, 'g1');
-    const canRe = await openGroupByPaper(page, '2020-07-1');
+    const _canRe = await openGroupByPaper(page, '2020-07-1');
     const reQuiz = await page.evaluate(() => window.__t.quiz());
     await answerAllOpts(page, 'first');
     const resub = await page.evaluate(() => { const b = document.getElementById('groupSubmit'); if (b && !b.disabled) { b.click(); return true; } return false; });
@@ -1230,7 +1230,7 @@ async function sectionC() {
       const qA = t.qidsOf('2020-07-1', 'cloze')[0];
       const qB = t.qidsOf('2020-09-1', 'cloze')[0];
       const spec = { user: '9306', items: [{ kind: 'cloze', paperId: '2020-07-1', key: 'gA' }, { kind: 'cloze', paperId: '2020-09-1', key: 'gB' }], state: { wrongbook: {} } };
-      const r = t.seed(spec);
+      const _r = t.seed(spec);
       const st = JSON.parse(localStorage.getItem('cet6_p1_state_v1_9306'));
       st.wrongbook[qA] = { addedAt: C.addDays(today, -30), box: 4, wrongCount: 1, due: today, ease: 2.6, iv: 15, streak: 4 }; // 再对 1 次即毕业
       st.wrongbook[qB] = { addedAt: C.addDays(today, -5), box: 3, wrongCount: 1, due: today, ease: 2.5, iv: 4, streak: 2 };
@@ -1445,7 +1445,7 @@ async function sectionC() {
     const errs = watchErrors(page, []);
     await seedInit(ctx, '9201', null, 'C7-' + Date.now());
     await page.goto(URL, { waitUntil: 'commit' }); await waitInit(page);
-    const rich = await page.evaluate(() => {
+    const _rich = await page.evaluate(() => {
       const C = window.CET6Core, today = C.todayStr(), t = window.__t;
       const st = { version: 1, history: {}, papers: {}, wrongbook: {}, essays: {}, hl: {} };
       for (let i = 0; i < 10; i++) { const d = C.addDays(today, -i); st.history[d] = { minutes: 10 + i, done: i % 2 === 0, floor: i % 3 === 0, qCount: 4 + i, right: 3 + i, timed: 1, timedWithin: i % 2, timedSec: 300 }; }
@@ -1507,7 +1507,7 @@ async function sectionC() {
     // (a) 双标签页同账号 = localStorage 竞争
     const ctx = await newCtx(browser, { viewport: VIEW });
     const a = ctx.pages()[0];
-    const errs = watchErrors(a, []);
+    const _errs = watchErrors(a, []);
     await seedInit(ctx, '9601', null, 'C8a-' + Date.now());
     await a.goto(URL, { waitUntil: 'commit' }); await waitInit(a);
     await seedThenReload(a, { user: '9601', items: [{ kind: 'cloze', paperId: '2020-07-1', key: 'ga' }, { kind: 'cloze', paperId: '2020-09-1', key: 'gb' }] });
@@ -1578,7 +1578,7 @@ async function sectionC() {
     // C8b-2：主线程阻塞 5s，验证计时器按真实时间推进（而非按 tick 计数会丢时）
     const b0 = parseClock((await a.evaluate(() => window.__t.quiz())).timer);
     const w0 = Date.now();
-    await a.evaluate(() => { const t = Date.now(); while (Date.now() - t < 5000) { } });
+    await a.evaluate(() => { const t = Date.now(); while (Date.now() - t < 5000) { /* busy wait */ } });
     await a.waitForTimeout(1200);
     const b1 = parseClock((await a.evaluate(() => window.__t.quiz())).timer);
     const wall = Math.round(((Date.now() - w0) / 1000) * 10) / 10;

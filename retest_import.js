@@ -25,7 +25,7 @@ const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
 const UID = '9203';
 const SKEY = 'cet6_p1_state_v1_' + UID;
-const LEGACY = 'cet6_p1_state_v1';
+const _LEGACY = 'cet6_p1_state_v1';
 const QID = '2026-06-1-r-46';
 const PAPER = '2026-06-1';
 const GOOD = 'GOODMARK987';
@@ -114,7 +114,7 @@ const wrongEntry = (o) => Object.assign({ addedAt: TODAY, box: 0, wrongCount: 1,
       const after = await storeGet(page, SKEY);
       const toast = await toastText(page);
       const alive = await page.evaluate(() => {
-        const el = document.getElementById('planList');
+        const _el = document.getElementById('planList');
         return { cards: document.querySelectorAll('#planList .card').length, bodyChildren: document.body.children.length, blank: document.body.innerText.trim().length < 20 };
       });
       t('损坏 JSON 被拒（提示含「导入失败」）', '导入回滚', /导入失败/.test(toast), S(toast));
@@ -166,7 +166,7 @@ const wrongEntry = (o) => Object.assign({ addedAt: TODAY, box: 0, wrongCount: 1,
       await importObj(page, BAD_IMPORT);
       const toast = await toastText(page);
       const st = await page.evaluate(() => {
-        const el = document.getElementById('planList');
+        const _el = document.getElementById('planList');
         return { blank: document.body.innerText.trim().length < 20, cards: document.querySelectorAll('#planList .card').length };
       });
       const saved = await storeGet(page, SKEY);
@@ -219,7 +219,7 @@ const wrongEntry = (o) => Object.assign({ addedAt: TODAY, box: 0, wrongCount: 1,
       await importRaw(page, JSON.stringify(goodState({ history: { [TODAY]: { minutes: 99, done: true, floor: false, qCount: 1, right: 1, timed: 0, timedWithin: 0, timedSec: 0 } } })), 'actually-a-json-but-named.txt', 'text/plain');
       const toast = await toastText(page);
       const after = await storeGet(page, SKEY);
-      const ok = /导入成功/.test(toast) && /99/.test(after || '');
+      const _ok = /导入成功/.test(toast) && /99/.test(after || '');
       R.cases.push({ name: 'accept=".json" 只是前端筛选，任意扩展名文件仍会被 FileReader 读入并按内容判断', group: '导入文件类型', pass: true, detail: 'toast=' + toast, informational: true });
       log('  [fact] 上传 .txt（内容为合法 JSON）→ 结果：' + toast + '（说明只看内容，不看扩展名）');
       await importRaw(page, 'not json at all', 'x.json');

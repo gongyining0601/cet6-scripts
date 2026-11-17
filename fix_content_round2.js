@@ -301,7 +301,7 @@ function main() {
 
       // ---- LOW-5（仅非 cloze） ----
       if (q.type !== 'cloze' && Array.isArray(q.options)) {
-        let hit = false;
+        let _hit = false;
         const next = q.options.map((op) => {
           if (typeof op !== 'string') return op;
           const fixed = capitalizeOptionText(op);
@@ -313,7 +313,7 @@ function main() {
         });
         if (next.some((v, i) => v !== q.options[i])) {
           q.options = next;
-          hit = true;
+          _hit = true;
           changedFieldOf[f].add('options');
           report.low5.questions.push(q.id);
         }

@@ -103,7 +103,7 @@ const URL = 'file://' + path.join(ROOT, 'app/index.html');
 
   // ===== 6.5 备份自动提醒 =====
   await page.evaluate(() => {
-    const C = window.CET6Core;
+    const _C = window.CET6Core;
     const st = JSON.parse(localStorage.getItem('cet6_p1_state_v1_3003'));
     // 造 8 天历史且从未备份
     for (let i = 8; i >= 1; i--) {

@@ -23,7 +23,7 @@ const clockSecs = (s) => {
 };
 const FULL_LISTEN = 4 * 72;   // 04:48 = 288s
 const FULL_WRITING = 30 * 60; // 30:00 = 1800s
-const CLOCK = /\d{2}:\d{2}/;  // 用时显示不再掐死在 00:0x
+const _CLOCK = /\d{2}:\d{2}/;  // 用时显示不再掐死在 00:0x
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE, args: ['--no-sandbox', '--disable-dev-shm-usage'] });

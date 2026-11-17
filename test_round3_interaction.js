@@ -97,7 +97,7 @@ function PAGE_API() {
       answerOf: function (qid) { var q = window.CET6Core.findQ(window.CET6_BANKS, qid); return q ? q.answer : null; },
       // 构造 state 并写入 localStorage（不 reload，由 Node 侧控制）
       seed: function (spec) {
-        var C = window.CET6Core, B = window.CET6_BANKS || [];
+        var C = window.CET6Core, _B = window.CET6_BANKS || [];
         var today = C.todayStr();
         var items = (spec.items || []).map(function (s, ix) {
           var qids = s.qids || window.__t.qidsOf(s.paperId, s.kind, s.qnoFrom, s.qnoTo);
@@ -428,7 +428,7 @@ async function navEntry(page) {
 }
 
 const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 10) / 10 : null);
-const med = (a) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+const _med = (a) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 const rng = (a) => (a.length ? [Math.min.apply(null, a), Math.max.apply(null, a)] : null);
 
 const doubleRaf = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1)))));
@@ -625,10 +625,10 @@ async function metrics(page) {
   await client.detach().catch(() => { });
   return o;
 }
-const getState = (page) => page.evaluate(() => window.__t.state());
+const _getState = (page) => page.evaluate(() => window.__t.state());
 const parseClock = (t) => { const m = /(\d+):(\d+)/.exec(t || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 // 页面内计时：从"点下去"到"目标 DOM 条件成立"的墙钟毫秒（不含协议往返，与上一轮同口径）
-async function inPageTime(page, fire, cond) {
+async function _inPageTime(page, fire, cond) {
   return page.evaluate(({ fire, cond }) => new Promise((res) => {
     const t0 = performance.now();
     const test = eval('(' + cond + ')');
@@ -637,11 +637,11 @@ async function inPageTime(page, fire, cond) {
     tick();
   }), { fire, cond });
 }
-function sstr(o) {
+function _sstr(o) {
   if (o === null || o === undefined) return JSON.stringify(o === undefined ? null : o);
   if (typeof o !== 'object') return JSON.stringify(o);
-  if (Array.isArray(o)) return '[' + o.map(sstr).join(',') + ']';
-  return '{' + Object.keys(o).sort().map((k) => JSON.stringify(k) + ':' + sstr(o[k])).join(',') + '}';
+  if (Array.isArray(o)) return '[' + o.map(_sstr).join(',') + ']';
+  return '{' + Object.keys(o).sort().map((k) => JSON.stringify(k) + ':' + _sstr(o[k])).join(',') + '}';
 }
 
 /* ============================ A. 性能复测 ============================ */
@@ -913,8 +913,8 @@ const VIEWPORTS = [
   { name: '390x844', w: 390, h: 844, touch: true },
   { name: '414x896', w: 414, h: 896, touch: true },
 ];
-const DARK_QUIZ_SELS = ['header h1', '.card h3', '.muted', '#planSummary', '.opt', '.opt.sel', 'nav button.on', 'nav button:not(.on)', '.btn', '.btn.ghost', '.qprog', '.passage'];
-const DARK_STAT_SELS = ['.stat-cell .v', '.stat-cell .k', 'table.acc th', 'table.acc td', '#statSummary', '.heat i.on'];
+const _DARK_QUIZ_SELS = ['header h1', '.card h3', '.muted', '#planSummary', '.opt', '.opt.sel', 'nav button.on', 'nav button:not(.on)', '.btn', '.btn.ghost', '.qprog', '.passage'];
+const _DARK_STAT_SELS = ['.stat-cell .v', '.stat-cell .k', 'table.acc th', 'table.acc td', '#statSummary', '.heat i.on'];
 
 async function answerMixed(page) {
   return page.evaluate(() => {
@@ -962,11 +962,11 @@ async function sectionB() {
       return s;
     });
     // 答题页（深色）
-    let quiz = null, qinfo = null, darkQuiz = null, darkJudged = null, submitted = false;
+    let quiz = null, _qinfo = null, darkQuiz = null, darkJudged = null, submitted = false;
     const o = await openFirstOpenGroup(page);
     if (o) {
       quiz = await page.evaluate(() => window.__scan());
-      qinfo = await page.evaluate(() => window.__t.quiz());
+      _qinfo = await page.evaluate(() => window.__t.quiz());
       darkQuiz = await page.evaluate(() => {
         const s = window.__scan(); s.dark = document.body.classList.contains('dark');
         s.contrast = window.__contrast(['.opt', 'nav button.on', '.qprog', '.qtimer', '.card h3', '.passage']);
@@ -1238,7 +1238,7 @@ async function clickCardWith(page, text) {
   }
   return false;
 }
-const planOf = (page) => page.evaluate(() => window.__t.plan());
+const _planOf = (page) => page.evaluate(() => window.__t.plan());
 const timers = (page) => page.evaluate(() => ({ t: (document.getElementById('quizTimer') || {}).textContent || '', cls: (document.getElementById('quizTimer') || {}).className || '', sel: document.querySelectorAll('.opt.sel').length, toasts: window.__t.toastLog() }));
 
 async function sectionC() {
@@ -1404,7 +1404,7 @@ async function sectionC() {
 
   /* ---------- C4 错题复习（SM-2） ---------- */
   {
-    const { ctx, page, errs } = await freshPage(browser, '9304');
+    const { ctx, page, _errs } = await freshPage(browser, '9304');
     // C4a：答对 5 次毕业出库
     const gradQ = await page.evaluate(() => {
       const C = window.CET6Core, today = C.todayStr(), qids = window.__t.allQids().filter((id) => /-r-/.test(id));
@@ -1434,7 +1434,7 @@ async function sectionC() {
       if (await btn.count()) { await btn.click(); await waitQuizOpen(page); clicked = true; }
       let correctItem = null;
       if (clicked) {
-        const stay = await submitAndStay(page, 'correct');
+        const _stay = await submitAndStay(page, 'correct');
         correctItem = await wbSnap();
         await page.evaluate(() => { const d = document.getElementById('groupDone'); if (d && getComputedStyle(d) !== null && getComputedStyle(d).display !== 'none') d.click(); else { const b = document.getElementById('quizBack'); if (b) b.click(); } });
         await waitQuizClosed(page);
@@ -1477,7 +1477,7 @@ async function sectionC() {
     await answerUntilComplete(page, 'wrong');
     await page.evaluate(() => document.getElementById('groupSubmit').click());
     await page.waitForFunction(() => { const g = document.getElementById('groupDone'); return g && getComputedStyle(g).display !== 'none'; });
-    const afterWrong = await page.evaluate((id) => { const wb = window.__t.state().wrongbook[id]; return { ease: Math.round((wb.ease || 0) * 100) / 100, streak: wb.streak, box: wb.box, iv: wb.iv, wrongCount: wb.wrongCount, due: wb.due }; }, info.over10);
+    const _afterWrong = await page.evaluate((id) => { const wb = window.__t.state().wrongbook[id]; return { ease: Math.round((wb.ease || 0) * 100) / 100, streak: wb.streak, box: wb.box, iv: wb.iv, wrongCount: wb.wrongCount, due: wb.due }; }, info.over10);
     await page.evaluate(() => { const d = document.getElementById('groupDone'); if (d && getComputedStyle(d).display !== 'none') d.click(); else document.getElementById('quizBack').click(); });
     await waitQuizClosed(page);
     const expected = [info.over10, info.over3wc5, info.over3, info.today0];
@@ -1608,11 +1608,11 @@ async function sectionC() {
       await d.saveAs(file);
       dl = { suggested: d.suggestedFilename(), size: fs.statSync(file).size };
     } catch (e) { dlErr = String(e.message || e).slice(0, 200); }
-    let expProj = null, liveProj = null;
+    let expProj = null, _liveProj = null;
     if (dl) {
       const exp = JSON.parse(fs.readFileSync(file, 'utf8'));
       expProj = { history: Object.keys(exp.history || {}).length, papers: Object.keys(exp.papers || {}).length, wrong: Object.keys(exp.wrongbook || {}).length, essay: ((exp.essays || {}).writing || {}).text.length };
-      liveProj = live;
+      _liveProj = live;
     }
     // 清空 → 导入
     await page.evaluate(() => window.__t.delState());
@@ -1689,7 +1689,7 @@ async function sectionC() {
     await page.reload({ waitUntil: 'commit' }); await waitInit(page);
     await openFirstOpenGroup(page);
     const tc0 = parseClock(await page.evaluate(() => document.getElementById('quizTimer').textContent));
-    await page.evaluate(() => { const t0 = Date.now(); while (Date.now() - t0 < 5000) { } });
+    await page.evaluate(() => { const t0 = Date.now(); while (Date.now() - t0 < 5000) { /* busy wait */ } });
     await page.waitForTimeout(1200);
     const tc1 = parseClock(await page.evaluate(() => document.getElementById('quizTimer').textContent));
     await page.evaluate(() => document.getElementById('quizBack').click());

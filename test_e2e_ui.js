@@ -7,7 +7,7 @@
  */
 'use strict';
 const path = require('path');
-const fs = require('fs');
+const _fs = require('fs');
 const { chromium: loadChromium, EXE, fileUrl } = require('./_env');
 const { chromium } = loadChromium();
 const ROOT = path.join(__dirname, '..');

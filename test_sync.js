@@ -131,7 +131,9 @@ async function waitReady(proc) {
 (async () => {
   const proc = spawn(process.execPath, [SERVER], {
     env: Object.assign({}, process.env, {
-      SYNC_PORT: String(PORT), SYNC_DATA: DATA, SYNC_TOKEN: TOKEN, SYNC_ORIGIN: '*', SYNC_NS: 'cet4'
+      SYNC_PORT: String(PORT), SYNC_DATA: DATA, SYNC_TOKEN: TOKEN, SYNC_ORIGIN: '*', SYNC_NS: 'cet4',
+      // 本用例测的是共享口令模式；安全修复后该模式须显式 opt-in（见 sync-server.js 启动校验）
+      SYNC_ALLOW_SHARED: '1'
     }),
     stdio: ['ignore', 'pipe', 'pipe']
   });

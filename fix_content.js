@@ -138,7 +138,7 @@ function loadBankFile(file) {
 }
 
 const BANK_FILES = () => fs.readdirSync(BANK_DIR).filter((f) => f.endsWith('.js')).sort();
-const fileOfPaper = (paperId) => 'cet6-' + paperId + '.js';
+const _fileOfPaper = (paperId) => 'cet6-' + paperId + '.js';
 
 // ---------------------------------------------------------------- 污染截断
 
@@ -252,7 +252,7 @@ function applyPunctuationBackoff(a, idx) {
   return last >= 0 ? last + 1 : idx;
 }
 
-const PUNCT_BACKOFF_APPLIED = Symbol('punctBackoff');
+const _PUNCT_BACKOFF_APPLIED = Symbol('punctBackoff');
 
 /** 返回 {ok, body, reason, marker} */
 function cleanAnalysis(a) {

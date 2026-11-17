@@ -191,7 +191,7 @@ function goodState(extra) {
     await p1.locator('#loginBtn').click().catch(() => { });
     await p1.waitForTimeout(200);
     const got = await storeGet(p1, 'cet6_user');
-    const s = since(l1, k);
+    const _s = since(l1, k);
     const dl = l1.dialog.length ? l1.dialog[l1.dialog.length - 1] : {};
     P('xss', {
       name: '登录输入 ' + JSON.stringify(v), sink: 'index.html:371-372 alert + /^\\d{4}$/',
@@ -838,7 +838,7 @@ function goodState(extra) {
   // 4.4 导入的数据隔离（只影响当前学习编号）
   await boot(p4, '9402', goodState({ __isolation: 'B-ORIGINAL' }));
   await p4.evaluate(() => {
-    const s = JSON.parse(localStorage.getItem('cet6_p1_state_v1_9402'));
+    const _s = JSON.parse(localStorage.getItem('cet6_p1_state_v1_9402'));
     localStorage.setItem('cet6_p1_state_v1_9403', JSON.stringify({ version: 1, history: {}, papers: {}, wrongbook: {}, __isolation: 'C-UNTOUCHED' }));
   });
   const keysBefore = await p4.evaluate(() => Object.keys(localStorage).slice().sort());

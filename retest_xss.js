@@ -31,7 +31,7 @@ const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.get
 const UID = '9203';
 const SKEY = 'cet6_p1_state_v1_' + UID;
 const QID = '2026-06-1-r-46';   // 题库真实存在的题
-const GHOST = '9999-99-9-r-999';
+const _GHOST = '9999-99-9-r-999';
 const PAPER = '2026-06-1';
 /* 注入 plan 的 v 必须等于当前 PLAN_VERSION（原来写死 v:3，清单会被丢弃重算） */
 const PLANV = planVersion();
@@ -128,7 +128,7 @@ function detect(page) {
     };
   }, CONTAINERS);
 }
-const inj = r => r.badContainers.length + (r.docImgs > 0 || r.docSvgs > 0 ? 1 : 0);
+const _inj = r => r.badContainers.length + (r.docImgs > 0 || r.docSvgs > 0 ? 1 : 0);
 
 /* 依次浏览各页签，累积最坏结果。注意：做题浮层 z-index 高于导航，直接派发 click 避免被遮挡 */
 async function sweep(page) {
@@ -188,7 +188,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
 
     /* ---------- 0. 阴性对照：证明探针可用 ---------- */
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState());
       const r = await page.evaluate(() => {
         window.__pwned = 0;
@@ -299,7 +299,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
         const k = PL_KINDS[i];
         const tag = 'x' + i;
         const P = mkPL[k](tag);
-        const { ctx, page, logs } = await newCtx(browser);
+        const { ctx, page, _logs } = await newCtx(browser);
         await boot(page, f.build(P));
         if (f.openQuiz) {   // 需要打开题组才会走到 restoreHl / renderGroup
           const ob = page.locator('#planList .card button').first();
@@ -327,7 +327,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
         plan: planWith([{ key: 'essay-x', type: 'writing', qids: [], paperId: PAPER, done: false, minutes: 0 }]),
         essays: { writing: { lastAt: TODAY, text: P }, translation: { lastAt: TODAY, text: P } },
       });
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, st);
       if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，草稿逃逸用例无法进行');
       const btn = page.locator('#planList .card button').first();
@@ -357,7 +357,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
     log('\n================ 4) 登录学习编号注入（回归确认）================');
     for (const k of PL_KINDS) {
       const P = mkPL[k]('login');
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await page.goto(URL, { waitUntil: 'load' });
       await page.waitForSelector('#loginMask, #planList .card', { timeout: 30000 });
       await page.evaluate(v => { try { localStorage.setItem('cet6_user', v); } catch (e) { } }, P);
@@ -391,7 +391,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
     ];
     for (const c of BANK_CASES) {
       const P = mkPL.img('bank');
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       // 需要一个能把这些字段渲染出来的存档：plan 里放同卷的 reading / match / cloze / writing 条目
       const st = baseState({
         plan: planWith([
@@ -407,7 +407,7 @@ const P_READ = { key: 'new-reading-2026-06-1-46', type: 'reading', qids: [QID], 
         try {
           const b = (window.CET6_BANKS || []).find(x => x.id === '2026-06-1');
           if (!b) return 'no-paper';
-          /* eslint-disable no-new-func */
+           
           const setter = new Function('b', 'v', p + ' = v; return ' + p + ';');
           setter(b, v);
           return 'ok';

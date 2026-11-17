@@ -21,7 +21,7 @@ const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
 const A = '9203', C = '5566';
 const PAPER = '2026-06-1';
-const LEGACY = 'cet6_p1_state_v1';
+const _LEGACY = 'cet6_p1_state_v1';
 const KB = k => 'cet6_p1_state_v1_' + k;
 const LQ = ['2026-06-1-l-1', '2026-06-1-l-2', '2026-06-1-l-3', '2026-06-1-l-4'];
 
@@ -576,7 +576,7 @@ function listenItem(extra) {
       await page.waitForTimeout(800);
       const withImg = await page.evaluate(() => {
         const img = document.querySelector('#quizBody img');
-        const card = document.querySelector('#quizBody .card');
+        const _card = document.querySelector('#quizBody .card');
         const psg = document.querySelector('#quizBody .passage');
         return {
           hasImg: !!img,
@@ -619,7 +619,7 @@ function listenItem(extra) {
       await openFirst(page);
       const t0 = (await page.locator('#quizTimer').textContent()).trim();
       const before = Date.now();
-      await page.evaluate(() => { const end = Date.now() + 5000; while (Date.now() < end) { } }); // 阻塞主线程 5s
+      await page.evaluate(() => { const end = Date.now() + 5000; while (Date.now() < end) { /* busy wait */ } }); // 阻塞主线程 5s
       const blocked = (Date.now() - before) / 1000;
       await page.waitForTimeout(1400); // 等一次 tick
       const wall = (Date.now() - before) / 1000;

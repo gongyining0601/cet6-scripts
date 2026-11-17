@@ -57,7 +57,7 @@ const check = (name, ok) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + name);
   check('点空格进入选中态（focus）', focused, 'focus=' + focused);
 
   const chipA = page.locator('#quiz .wb-chip[data-w="A"]');
-  const chipAtext = (await chipA.textContent()) || '';
+  const _chipAtext = (await chipA.textContent()) || '';
   await chipA.click();
   const filled = (await slot26.textContent()) || '';
   const pickedA = await slot26.getAttribute('data-picked');
@@ -80,7 +80,7 @@ const check = (name, ok) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + name);
   await page.locator('#groupSubmit').click();
   await page.waitForSelector('#quiz.show .cloze-slot.right, #quiz.show .cloze-slot.wrongpick', { timeout: 15000 });
   const slotClass = await slot27.getAttribute('class');
-  const chipDisabled = await chipA.isDisabled();
+  const _chipDisabled = await chipA.isDisabled();
   const bankDisabledCount = await page.locator('#quiz .wb-chip:disabled').count();
   check('判分后填空位标记 right/wrongpick', /right|wrongpick/.test(slotClass), 'cls=' + slotClass);
   check('判分后词库全部禁用', bankDisabledCount === 15, 'disabled=' + bankDisabledCount);

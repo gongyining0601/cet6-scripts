@@ -227,7 +227,7 @@ for (const { f, q } of clozeQ) {
 }
 
 // ---------------- 写回（只写真正变化的文件）
-const changedFiles = [], stableFail = [];
+const changedFiles = [], _stableFail = [];
 for (const f of files) {
   const p = path.join(BANK_DIR, f);
   const orig = fs.readFileSync(p);

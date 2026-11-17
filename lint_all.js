@@ -17,10 +17,21 @@ const { spawnSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const ESLINT_BIN = path.join(__dirname, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const CONFIG = path.join(__dirname, 'eslint.config.js');
+const INLINE = path.join(__dirname, 'lint_inline.js');
 
+// 第一段：scripts + app 下的 .js 文件
 const r = spawnSync(process.execPath,
   [ESLINT_BIN, '--config', CONFIG, 'scripts', 'app'],
   { cwd: ROOT, stdio: 'inherit' });
 
 if (r.error) { console.error('lint 启动失败：' + r.error.message); process.exit(2); }
-process.exit(r.status === null ? 2 : r.status);
+const jsStatus = r.status === null ? 2 : r.status;
+
+// 第二段：index.html 里的内联 <script>（ESLint CLI 不解析 HTML，单独用 Node API 查）
+console.log('\n--- 检查 index.html 内联脚本 ---');
+const ir = spawnSync(process.execPath, [INLINE], { cwd: ROOT, stdio: 'inherit' });
+if (ir.error) { console.error('内联 lint 启动失败：' + ir.error.message); process.exit(2); }
+const inlineStatus = ir.status === null ? 2 : ir.status;
+
+// 任一段有 error 就挡门禁；warning 不影响（宽松档）
+process.exit(jsStatus || inlineStatus);

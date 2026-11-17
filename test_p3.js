@@ -47,7 +47,7 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   });
   await page.evaluate((s) => {
     const C = window.CET6Core;
-    const today = C.todayStr();
+    const _today = C.todayStr();
     const key = C.stateKey('9203');
     localStorage.setItem('cet6_user', '9203');
     localStorage.setItem(key, JSON.stringify({
@@ -56,7 +56,7 @@ const check = (name, ok, extra) => results.push((ok ? 'ok' : 'FAIL') + ' - ' + n
   }, seed);
   await page.reload();
   await page.waitForSelector('#page-today');
-  const ready = await page.evaluate(() => !!document.getElementById('pointTrainBtn') || !!document.querySelector('nav button'));
+  const _ready = await page.evaluate(() => !!document.getElementById('pointTrainBtn') || !!document.querySelector('nav button'));
   await page.waitForTimeout(300);
 
   // 统计页：估分卡 + 薄弱考点按钮

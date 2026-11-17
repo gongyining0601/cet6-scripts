@@ -92,7 +92,7 @@ function record(id, point, container, res, note) {
     /* ---- 1) plan.items[].label：字符串型，normalizeState 限长保留 → 纯 esc 路径 ---- */
     log('================ 状态路径（字符串字段，normalizeState 限长保留）================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState({ plan: planWith([{ key: 'k1', type: 'reading', qids: [PAPER + '-r-46'], paperId: PAPER, label: PAY, done: false, minutes: 0 }]) }));
       const st = await stateOf(page);
       const labelKept = !!(st.plan && st.plan.items[0] && st.plan.items[0].label === PAY);
@@ -106,7 +106,7 @@ function record(id, point, container, res, note) {
     }
     /* ---- 2) essays.writing.text：限长 20000 保留 → textarea ---- */
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState({
         plan: planWith([{ key: 'w1', type: 'writing', qids: [], paperId: PAPER, done: false, minutes: 0, draft: {} }]),
         essays: { writing: { lastAt: TODAY, text: PAY + ' essay body' } },
@@ -125,7 +125,7 @@ function record(id, point, container, res, note) {
     /* ---- 3) papers/wrongbook/history 数字字段：归一化即消除（列出取值）---- */
     log('\n================ 状态路径（数字字段，normalizeState 的 num() 先消除）================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState({
         history: { [TODAY]: { minutes: PAY, done: true, qCount: PAY, right: PAY, timed: PAY, timedWithin: 0, timedSec: 0 } },
         papers: { [PAPER + '-r-46']: { seen: PAY, right: PAY, wrong: 0, lastAt: TODAY, lastResult: 'right', lastAnswer: PAY } },
@@ -151,7 +151,7 @@ function record(id, point, container, res, note) {
     /* ---- 4) 题库字段（绕过 normalizeState 的纯 esc 路径）---- */
     log('\n================ 题库路径（完全绕过 normalizeState，只有 esc 这道防线）================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState({ plan: planWith([{ key: 'r1', type: 'reading', qids: [PAPER + '-r-46'], paperId: PAPER, label: '阅读', done: false, minutes: 0 }]) }));
       // 按需加载：篡改题库前先注入目标卷，否则 BANKS 为空、b.questions 取到 undefined
       if (!await ensurePaper(page, PAPER)) throw new Error('卷 ' + PAPER + ' 未能加载，题库路径用例无法进行');
@@ -202,18 +202,18 @@ function record(id, point, container, res, note) {
     /* ---- 5) hl：非注入面（匹配键 + createTextNode）---- */
     log('\n================ hl[pid]：路径分析 + 实测 ================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       const pid = PAPER + '#reading#read0';
       await boot(page, baseState({
         plan: planWith([{ key: 'r1', type: 'reading', qids: [PAPER + '-r-46'], paperId: PAPER, label: '阅读', done: false, minutes: 0 }]),
         hl: { [pid]: [PAY] },
       }));
-      const st = await stateOf(page);
+      const _st = await stateOf(page);
       await page.locator('#planList .card button').first().click();
       await page.waitForTimeout(600);
       const res = await probe(page, '#quizBody');
       // 另测：hl 串确实命中原文时，插入的是 mark 且内容为原文（createTextNode，不解析 HTML）
-      const hit = await page.evaluate(({ pid }) => {
+      const _hit = await page.evaluate(({ pid }) => {
         const p = document.querySelector('[data-pid]');
         if (!p) return { no: 'no-passage' };
         const txt = p.innerText || '';
@@ -236,7 +236,7 @@ function record(id, point, container, res, note) {
     /* ---- 6) 登录编号：输入校验拦在 DOM 之前 ---- */
     log('\n================ 登录编号：校验拦在 DOM 之前 ================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await page.goto(URL, { waitUntil: 'load' });
       await page.waitForSelector('#loginMask', { timeout: 30000 });
       await page.locator('#phoneInput').fill(PAY);
@@ -252,7 +252,7 @@ function record(id, point, container, res, note) {
     /* ---- 7) 幽灵 qid 键：wrongRow 守卫 ---- */
     log('\n================ 幽灵 qid（状态键）不得渲染 ================');
     {
-      const { ctx, page, logs } = await newCtx(browser);
+      const { ctx, page, _logs } = await newCtx(browser);
       await boot(page, baseState({ wrongbook: { [PAY]: { addedAt: TODAY, box: 0, wrongCount: 1, due: TODAY, ease: 2.5, iv: 1, streak: 0 } } }));
       await page.evaluate(() => { const b = document.querySelector('nav button[data-p="wrong"]'); if (b) b.click(); }); await page.waitForTimeout(350);
       const info = await page.evaluate(() => ({ els: document.querySelectorAll('#dueList img, #allWrongList img').length, pwned: window.__pwned, rows: document.querySelectorAll('#dueList .wb-item, #allWrongList .wb-item').length, summary: document.getElementById('wrongSummary').textContent }));

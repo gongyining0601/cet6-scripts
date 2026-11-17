@@ -101,7 +101,7 @@ const day2 = C.addDays(today, 1);
 const due = C.dueWrongIds(state, day2);
 assert(due.length === wrongCreated.length, '次日全部到期 (' + due.length + ')');
 // 重练第一题：答对 → box 0→1, due = day2+2
-const wid = due[0], wq = C.findQ(BANKS, wid);
+const wid = due[0], _wq = C.findQ(BANKS, wid);
 C.recordResult(state, wid, true, day2);
 assert(state.wrongbook[wid] && state.wrongbook[wid].box === 1, '答对升级 box 1');
 assert(state.wrongbook[wid].due === C.addDays(day2, 2), '下次到期 +2 天');

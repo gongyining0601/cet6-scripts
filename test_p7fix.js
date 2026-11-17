@@ -1,6 +1,6 @@
 /* P7 修复回归：① 旧版(P6) plan 残留被丢弃重算 ② 错题重练题号有序(同卷相邻升序) */
 const path = require('path');
-const fs = require('fs');
+const _fs = require('fs');
 const { chromium: loadChromium, EXE, ensurePaper } = require('./_env');
 const { chromium } = loadChromium();
 const ROOT = path.join(__dirname, '..');

@@ -87,7 +87,7 @@ function goodState(extra) {
     if (!ID.qid) { log('   x 样卷未就绪，后续用例无法定位真实 qid，终止'); throw new Error('sample paper not ready: ' + SAMPLE_PAPER); }
     await c0.close();
 
-    const { ctx, page, logs } = await newCtx(browser);
+    const { _ctx, page, logs } = await newCtx(browser);
     const wb = { addedAt: TODAY, box: 0, wrongCount: 3, due: TODAY, ease: 2.5, iv: 1, streak: 0 };
 
     /* ---------- A. 错题本含"题库里不存在的 qid" ---------- */

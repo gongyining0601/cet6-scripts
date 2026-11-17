@@ -3,10 +3,16 @@
  * 背景：CET4 是从 CET6 复制分叉出来的孪生项目，历史上出现过「CET6 修了 6 项、
  * CET4 一项都没跟」的漏修。人工复制不可靠，所以把「必须一致」与「必须都有」写成断言。
  *
- * 检查三类：
+ * 检查四类：
  *   A. 共享内核：下列文件两仓必须字节一致（差异只允许出现在 sync-config.js / 配置里）；
- *   B. 修复点：一组「上游已修、下游必须跟」的特征串，两边都要命中；
- *   C. 允许差异：PLAN_VERSION、namespace 等必须各自保持正确值，不能被覆盖成一样。
+ *   B. 测试基建：两仓都必须具备的测试脚本文件，缺一即失败（防止一边悄悄丢测试资产）；
+ *   C. 修复点：一组「上游已修、下游必须跟」的行为特征，两边都要命中；
+ *      特征同时校验"调用"与"机制"（如 flushEssaySave 的兜底调用），不是只查一个变量名——
+ *      只查变量的字符串存在判断会把"变量还在、兜底已删"误判为已修（假绿）。
+ *   D. 允许差异：PLAN_VERSION、namespace 等必须各自保持正确值，不能被覆盖成一样。
+ *
+ * 同伴项目缺失 = 闸门失效：直接 FAIL，不再静默跳过（原来 51→25 断言仍 PASS 是假绿）。
+ * 单项目确实要自检时，显式设 CET_ALLOW_SOLO=1，并明确打印"仅本仓、未做跨项目比对"。
  *
  * 用法：node scripts/check_divergence.js
  *       CET_PEER_ROOT=D:\CET6 node scripts/check_divergence.js   （兄弟目录不在同级时）
@@ -23,6 +29,7 @@ const ME = path.basename(ROOT).toUpperCase();
 const DEFAULT_PEER = path.join(path.dirname(ROOT), ME === 'CET4' ? 'CET6' : 'CET4');
 const PEER = process.env.CET_PEER_ROOT || DEFAULT_PEER;
 const PEER_OK = fs.existsSync(path.join(PEER, 'app', 'index.html'));
+const ALLOW_SOLO = process.env.CET_ALLOW_SOLO === '1';
 const UPSTREAM = (process.env.CET_UPSTREAM || 'CET6').toUpperCase();
 
 let ok = 0, fail = 0;
@@ -34,13 +41,23 @@ function chk(name, cond, detail) {
 function read(root, rel) {
   try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch (e) { return ''; }
 }
+function exist(root, rel) { return fs.existsSync(path.join(root, rel)); }
 function sha(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 12); }
 
 console.log('===== 双项目分叉检查 =====');
 console.log('本项目: ' + ROOT);
-console.log('对照项目: ' + PEER + (PEER_OK ? '' : '  [不存在 → 跳过跨项目比对]'));
+console.log('对照项目: ' + PEER + (PEER_OK ? '' : '  [不存在]'));
 console.log('登记上游: ' + UPSTREAM + '（改由另一项目主导时设 CET_UPSTREAM）');
+if (!PEER_OK) {
+  if (ALLOW_SOLO) console.log('警告: CET_ALLOW_SOLO=1 —— 仅检查本仓，未做跨项目比对，闸门结论不可作为发布依据。');
+  else console.log('错误: 找不到同伴项目，跨项目比对无法进行。需用 CET_PEER_ROOT 指对路径，或显式设 CET_ALLOW_SOLO=1 自担风险。');
+}
 console.log('');
+
+// 同伴缺失：默认判失败（原来静默跳过是假绿源头）
+if (!PEER_OK && !ALLOW_SOLO) {
+  chk('同伴项目可访问（跨项目比对有效）', false, PEER);
+}
 
 // ---------- A. 共享内核必须字节一致 ----------
 const SHARED = [
@@ -60,10 +77,31 @@ SHARED.forEach(function (rel) {
   }
 });
 
-// ---------- B. 修复点：两边都必须命中 ----------
+// ---------- B. 测试基建必须两仓都有 ----------
+// 只列两仓都应具备的公共测试资产；项目特有脚本（如 a11y/stress）不在此列。
+const TEST_INFRA = [
+  'scripts/check_divergence.js',
+  'scripts/run_all.js',
+  'scripts/test_core.js',
+  'scripts/test_sync.js',
+  'scripts/test_version_sync.js',
+  'scripts/test_e2e.js',
+  'scripts/test_security_audit.js',
+  'scripts/test_release_audit.js'
+];
+const roots = PEER_OK ? [ROOT, PEER] : [ROOT];
+TEST_INFRA.forEach(function (rel) {
+  roots.forEach(function (root) {
+    const tag = path.basename(root).toUpperCase();
+    chk(tag + ' 测试基建存在 ' + rel, exist(root, rel), rel);
+  });
+});
+
+// ---------- C. 修复点：行为特征，两边都必须命中 ----------
 const FIXES = [
   { n: '静态 CSP（file:// 与 https 同时生效）', f: 'app/index.html', re: /<meta\s+http-equiv="Content-Security-Policy"/ },
-  { n: '作文保存防抖', f: 'app/index.html', re: /essaySaveTimer/ },
+  { n: '作文保存防抖（定时器声明）', f: 'app/index.html', re: /essaySaveTimer/ },
+  { n: '作文保存兜底 flushEssaySave（声明+调用）', f: 'app/index.html', re: /function\s+flushEssaySave[\s\S]{0,400}flushEssaySave\(\)/ },
   { n: '4 位编号撞号提示', f: 'app/index.html', re: /1 万种组合/ },
   { n: '未到期错题在 innerHTML 之后绑定', f: 'app/index.html', re: /绑定必须在 innerHTML 之后/ },
   { n: '错题/考点练习剔幽灵 qid', f: 'app/index.html', re: /ids\.filter\(function \(id\) \{ return !!C\.findQ/ },
@@ -72,6 +110,7 @@ const FIXES = [
   { n: '同步层 save() 接线', f: 'app/index.html', re: /CET_SYNC\.schedulePush\(\)/ },
   { n: '同步状态卡片', f: 'app/index.html', re: /id="syncStatus"/ },
   { n: '同步口令首次输入（不写死配置）', f: 'app/index.html', re: /CET_SYNC\.setToken\(t\)/ },
+  { n: '切换用户时断开同步身份（detach 接入）', f: 'app/index.html', re: /CET_SYNC\.detach\(\)/ },
   { n: 'history 730 天裁剪', f: 'app/core.js', re: /-730/ },
   { n: 'SW 骨架走网络优先', f: 'app/sw.js', re: /isMetaIndex/ },
   { n: 'SW 预缓存同步层脚本', f: 'app/sw.js', re: /'\.\/sync\.js'/ },
@@ -80,7 +119,6 @@ const FIXES = [
   { n: '回归含版本/外壳闸门', f: 'scripts/run_all.js', re: /test_version_sync\.js/ },
   { n: '回归含分叉闸门', f: 'scripts/run_all.js', re: /check_divergence\.js/ }
 ];
-const roots = PEER_OK ? [ROOT, PEER] : [ROOT];
 roots.forEach(function (root) {
   const tag = path.basename(root).toUpperCase();
   FIXES.forEach(function (fx) {
@@ -90,7 +128,7 @@ roots.forEach(function (root) {
   });
 });
 
-// ---------- C. 允许差异：必须各自保持正确值 ----------
+// ---------- D. 允许差异：必须各自保持正确值 ----------
 const expectPlan = { CET4: 9, CET6: 8 };  // 四级听力分片烘焙数据比六级高 1，不能互相覆盖
 [ROOT].concat(PEER_OK ? [PEER] : []).forEach(function (root) {
   const tag = path.basename(root).toUpperCase();

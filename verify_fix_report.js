@@ -154,7 +154,7 @@ const P = (kind, o) => { R.browser[kind] = R.browser[kind] || []; R.browser[kind
 /* ---------- B. M-2 脏备份导入（5 类）---------- */
 async function partB_dirty(browser, IDS) {
   log('\n=========== B. M-2 脏备份导入（5 类异常）===========');
-  const { ctx, page, logs } = await newPage(browser, 'dirty');
+  const { ctx, page, _logs } = await newPage(browser, 'dirty');
   await boot(page, '9501', goodState());
   const cases = [
     ['截断 JSON（语法错误）', '{"version":1,"history":{"20'],
@@ -261,7 +261,7 @@ async function partC_rollback(browser) {
 async function partD_csv(browser, IDS) {
   log('\n=========== D. M-3 幽灵 qid / M-4 公式注入（CSV 导出）===========');
   const { ctx, page } = await newPage(browser, 'csv');
-  const OUT = [];
+  const _OUT = [];
   const QID_A = IDS.reading;                // 真实阅读题
   const QID_B = 'ghost-qid-9999';           // 幽灵 qid（题库不存在）
   const FORMULA = { stem: '=1+1 题干以公式开头', lastAnswer: '=1+1', csvField: 'a,"b"\nc', due: '=cmd|\'/c calc\'!A1', wrongCount: '@SUM(A1)' };

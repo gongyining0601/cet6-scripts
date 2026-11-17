@@ -39,7 +39,7 @@ for (var i = 0; i < 5; i++) C.recordResult(st, qid2, true, '2026-09-25');
 assert(!st.wrongbook[qid2], '连续答对毕业出库(未入过库)');
 C.recordResult(st, qid2, false, '2026-09-25');
 assert(st.wrongbook[qid2] && st.wrongbook[qid2].wrongCount === 1, '入库');
-var box = 0;
+var _box = 0;
 ['09-26','09-28','10-02','10-09','10-24'].forEach(function (d) {
   C.recordResult(st, qid2, true, '2026-' + d);
 });
@@ -153,11 +153,11 @@ var d = '2026-09-25', days = 0, dupFound = false;
 while (days < 600) {
   var p = C.genPlan(stSim, banks, d);
   stSim.plan = p;
-  var hasQ = false;
+  var _hasQ = false;
   p.items.forEach(function (it) {
     it.qids.forEach(function (id) {
       if (scheduled[id]) dupFound = true;
-      scheduled[id] = 1; hasQ = true;
+      scheduled[id] = 1; _hasQ = true;
     });
   });
   assert(!dupFound, '第 ' + days + ' 天无重复排期');

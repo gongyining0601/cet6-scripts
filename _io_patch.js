@@ -8,7 +8,7 @@
 //       copyFileSync / promises.copyFile / unlinkSync / rmSync / renameSync / promises.unlink / promises.rm / promises.rename
 'use strict';
 const fs = require('fs');
-const path = require('path');
+const _path = require('path');
 
 const _orig = {
   writeFileSync: fs.writeFileSync,
@@ -29,7 +29,7 @@ function isLock(e) { return e && RETRY_CODES.has(e.code); }
 /* ---- 同步休眠 ---- */
 function sleep(ms) {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
-  catch (e) { const end = Date.now() + ms; while (Date.now() < end) {} }
+  catch (e) { const end = Date.now() + ms; while (Date.now() < end) { /* busy wait */ } }
 }
 /* ---- 异步休眠 ---- */
 function sleepAsync(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -167,14 +167,14 @@ fs.writeFile = function (file, data, opts, cb) {
   }
   let tmp; // 每次 writeTmp 重试用新名字，避免撞上已被锁的旧 temp
   const hasOpts = args.length >= 4;
-  let lastErr;
+  let _lastErr;
 
   let wTries = 0;
   const writeTmp = () => {
     tmp = tmpName(file);
     const onDone = (err) => {
       if (!err) { renameStep(0); return; }
-      lastErr = err;
+      _lastErr = err;
       if (isLock(err) && wTries < ASYNC_BACKOFF.length - 1) {
         wTries++; setTimeout(writeTmp, ASYNC_BACKOFF[wTries]); return;
       }
@@ -189,7 +189,7 @@ fs.writeFile = function (file, data, opts, cb) {
   const renameStep = (i) => {
     fs.rename(tmp, file, (err) => {
       if (!err) { callback(null); return; }
-      lastErr = err;
+      _lastErr = err;
       if (isLock(err) && i < 3) { setTimeout(() => renameStep(i + 1), 300); return; }
       directStep(0);
     });
@@ -198,7 +198,7 @@ fs.writeFile = function (file, data, opts, cb) {
   const directStep = (i) => {
     const onDone = (err) => {
       if (!err) { callback(null); return; }
-      lastErr = err;
+      _lastErr = err;
       if (isLock(err) && i < ASYNC_BACKOFF.length - 1) {
         i++; setTimeout(() => directStep(i), ASYNC_BACKOFF[i]); return;
       }
@@ -250,11 +250,11 @@ try {
   fsp.copyFile = async function (src, dest, mode) {
     let tmp;
     // 方案 A：copyFile 到临时文件（每次重试用新 tmp 名，避免撞已被锁的旧 temp）
-    let lastErr;
+    let _lastErr;
     try {
       await asyncRetry(async () => { tmp = tmpName(dest); await orig.copyFile.call(fsp, src, tmp, mode); });
     } catch (e) {
-      lastErr = e;
+      _lastErr = e;
       // 方案 B：copyFile 跨卷/撞锁失败时，退化为 readFile + writeFile
       // （Playwright download.saveAs 的源文件可能被短暂独占，copyFile 开源失败；
       //   readFile 走另一套打开路径，配合 writeFile 的 tmp+rename 更稳）

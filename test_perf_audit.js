@@ -71,7 +71,7 @@ async function seedState(page, phone, mutateSrc, planItems) {
     var C = window.CET6Core;
     var today = C.todayStr();
     var st;
-    /* eslint-disable no-new-func */
+     
     st = new Function('C', 'today', 'banks', 'return (' + args.src + ')(C, today, window.CET6_BANKS);')(C, today, window.CET6_BANKS);
     if (args.planItems) st.plan = { date: today, v: C.PLAN_VERSION, items: args.planItems };
     else if (!st.plan) st.plan = { date: today, v: C.PLAN_VERSION, items: [] };
@@ -860,7 +860,7 @@ async function sectionViewport(browser) {
 /* ============================================================ 4. 浏览器 */
 
 async function runCompat(execPath, label) {
-  const ctxBundle = {};
+  const _ctxBundle = {};
   const browser = await chromium.launch({ executablePath: execPath, args: LAUNCH_ARGS, headless: !HEADED });
   const res = { label: label, exe: execPath, version: browser.version() };
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -1201,7 +1201,7 @@ async function sectionFluency(browser) {
     var t1 = performance.now();
     return { renderMs: t1 - t0, rows: document.querySelectorAll('#allWrongList .wb-item').length + document.querySelectorAll('#dueList .wb-item').length };
   });
-  const paintMs = await page.evaluate(function () {
+  const _paintMs = await page.evaluate(function () {
     return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(function () { r(performance.now()); }); }); });
   });
   R.fluency.wrongBook500 = {

@@ -24,7 +24,7 @@ const pad = n => (n < 10 ? '0' + n : '' + n);
 const d0 = new Date();
 const TODAY = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate());
 const UID = '9203';
-const SKEY = 'cet6_p1_state_v1_' + UID;
+const _SKEY = 'cet6_p1_state_v1_' + UID;
 const PAPER = '2026-06-1';
 /* 注入 plan 的 v 必须等于当前 PLAN_VERSION，否则 ensurePlan 整份丢弃重算（原来写死 v:3）。 */
 const PLANV = planVersion();
@@ -143,7 +143,7 @@ async function runGroup(page, idx) {
       steps.push('④ 开始答题 → 作答 ' + g.answered + ' 题 → ' + (g.kind === 'writing' ? '我写完了（主观题组）' : '提交判分'));
       await page.waitForTimeout(400);
       await shot(page, 'journey-judged');
-      const judged = await page.evaluate(() => document.querySelector('#quizBody') && document.querySelector('#quizBody').innerText.length);
+      const _judged = await page.evaluate(() => document.querySelector('#quizBody') && document.querySelector('#quizBody').innerText.length);
       // 完成返回
       if (g.kind !== 'writing') {
         const done = page.locator('#groupDone');
@@ -155,7 +155,7 @@ async function runGroup(page, idx) {
       steps.push('⑥ 错题本 → ' + wrongTxt);
       // 统计
       await page.locator('nav button[data-p="stat"]').click(); await page.waitForTimeout(350);
-      const statTxt = await page.evaluate(() => document.getElementById('page-stat').innerText.slice(0, 80).replace(/\s+/g, ' '));
+      const _statTxt = await page.evaluate(() => document.getElementById('page-stat').innerText.slice(0, 80).replace(/\s+/g, ' '));
       const estCard = await page.locator('#estCard').count();
       steps.push('⑦ 统计 → 估算分卡=' + estCard);
       await shot(page, 'journey-stat');
@@ -197,7 +197,7 @@ async function runGroup(page, idx) {
       await page.waitForTimeout(400);
       const first = await page.evaluate(() => { const b = document.querySelector('#quizBody .opt'); if (!b) return null; b.click(); return b.getAttribute('data-q') + '=' + b.getAttribute('data-v'); });
       await page.waitForTimeout(300);
-      const prog1 = await page.evaluate(() => document.getElementById('quizProg').textContent);
+      const _prog1 = await page.evaluate(() => document.getElementById('quizProg').textContent);
       await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(900);
       await page.locator('#planList .card button').first().click();

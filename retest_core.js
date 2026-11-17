@@ -208,7 +208,7 @@ log('\n=== 8) streak / heatmap / 遗忘曲线 ===');
   const st = C.newState();
   C.recordResult(st, 'q1', false, '2026-09-01');
   t('答错入错题本 due=次日', '遗忘曲线', st.wrongbook.q1.due === '2026-09-02' && st.wrongbook.q1.wrongCount === 1, S(st.wrongbook.q1));
-  let box0 = st.wrongbook.q1.box;
+  let _box0 = st.wrongbook.q1.box;
   for (let i = 0; i < 5; i++) C.recordResult(st, 'q1', true, '2026-09-0' + (2 + i));
   t('连对 5 次毕业出库', '遗忘曲线', st.wrongbook.q1 === undefined, S(st.wrongbook));
   const st2 = C.newState();
