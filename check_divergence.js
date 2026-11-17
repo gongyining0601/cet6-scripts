@@ -86,6 +86,7 @@ const TEST_INFRA = [
   'scripts/test_sync.js',
   'scripts/test_version_sync.js',
   'scripts/test_e2e.js',
+  'scripts/test_e2e_ui.js',
   'scripts/test_security_audit.js',
   'scripts/test_release_audit.js'
 ];
@@ -116,6 +117,7 @@ const FIXES = [
   { n: 'SW 预缓存同步层脚本', f: 'app/sw.js', re: /'\.\/sync\.js'/ },
   { n: 'gen_meta 调共享版本递增', f: 'scripts/gen_meta.js', re: /bump_version\.js/ },
   { n: '回归含同步用例', f: 'scripts/run_all.js', re: /test_sync\.js/ },
+  { n: '回归含真实 UI E2E（防假 E2E 回潮）', f: 'scripts/run_all.js', re: /test_e2e_ui\.js/ },
   { n: '回归含版本/外壳闸门', f: 'scripts/run_all.js', re: /test_version_sync\.js/ },
   { n: '回归含分叉闸门', f: 'scripts/run_all.js', re: /check_divergence\.js/ }
 ];
