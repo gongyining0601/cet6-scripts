@@ -44,6 +44,13 @@ jobs:
         working-directory: CET6/scripts
         run: npm install --ignore-scripts --no-audit --no-fund
 
+      # 宽松档：只把「明确错误」（未定义变量、重复键等）留成 error 挡门禁；
+      # 存量风格问题记 warning 不拦提交。lint_all.js 把 cwd 提到 CET6/ 根，
+      # 一次覆盖 scripts（测试工具）与 app（生产源码）两个目录，跳过生成的 bank/ 题库。
+      - name: ESLint（明确错误挡门禁）
+        working-directory: CET6/scripts
+        run: npm run lint
+
       # 跳过 2 个依赖「完整多仓布局」的用例（干净环境模拟已验证它们会因缺文件误红）：
       #   check_divergence.js 要对照 CET4 项目的 app + scripts 两套仓
       #   test_id_isolation.js 要读根仓 README.md（根仓没有远端）

@@ -129,6 +129,17 @@ assert(revs.length >= 1 && revs.some(function (i) { return i.qids.indexOf(rQs[0]
 assert(revs.some(function (i) { return i.qids.indexOf(rQs[1].id) >= 0 && i.qids.indexOf(rQs[2].id) >= 0; }), '同卷同题型错题打包成组');
 var revMin = revs.reduce(function (a, i) { return a + i.qids.length * C.TYPE_META[i.type].minPerQ; }, 0);
 assert(revMin <= C.REVIEW_CAP + 0.01, '复习封顶 ' + C.REVIEW_CAP + ' 分钟: ' + revMin.toFixed(1));
+// 补：封顶必须真的被触发。上面只有 3 道错题，累计远小于上限，
+// 「封顶条件被放宽/删掉」的变异根本走不到这个分支（变异测试 #7 曾因此存活）。
+var stCap = C.newState();
+var rAll = [];
+banks.forEach(function (b) { (b.questions || []).forEach(function (q) { if (q.type === 'reading') rAll.push(q); }); });
+rAll.slice(0, 40).forEach(function (q) { C.recordResult(stCap, q.id, false, '2026-09-24'); });
+var planCap = C.genPlan(stCap, banks, '2026-09-25');
+var revCap = planCap.items.filter(function (i) { return i.review; });
+var capMin = revCap.reduce(function (a, i) { return a + i.qids.length * C.TYPE_META[i.type].minPerQ; }, 0);
+assert(capMin > C.REVIEW_CAP - 3, '封顶场景确实被触发（复习分钟数逼近上限）: ' + capMin.toFixed(1));
+assert(capMin <= C.REVIEW_CAP + 0.01, '40 道到期错题仍被封顶在 ' + C.REVIEW_CAP + ' 分钟内: ' + capMin.toFixed(1));
 // 复习组题号升序
 revs.forEach(function (rv) {
   var nos = rv.qids.map(function (id) { return C.findQ(banks, id).qno; });

@@ -124,6 +124,12 @@ const TESTS = [
   // 与 retest_shape.js / retest_pwa_probe.js 同类，判 NO-ASSERT 属于冤枉。
   { f: 'retest_probe.js', g: 'probe', min: 0, kind: 'dump', d: '通用探针（只读取证，无断言）' },
   { f: 'retest_reach.js', g: 'probe', min: 1, d: '可达性取证' },
+  /* 2026-11-17 真实压测（取证型，必过）：
+     同步服务压测只打 127.0.0.1 临时端口、数据落 os.tmpdir()、跑完即删，不碰生产；
+     前端压测用本机临时 HTTP 服务的 app 副本，数据是合法日期 + 真实题号。
+     CI 只跑 core 组，不受这两项影响；本地全量回归会连它们一起跑并留档。 */
+  { f: 'test_stress_sync.js', g: 'probe', min: 12, d: '同步服务并发压测（本地实例 600+ 请求）' },
+  { f: 'test_stress_frontend.js', g: 'probe', min: 9, d: '前端大数据压测（700 天 / 3000 题）' },
 ];
 
 /* ------------------------------ 参数解析 ------------------------------ */

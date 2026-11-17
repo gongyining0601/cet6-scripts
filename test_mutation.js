@@ -10,9 +10,20 @@
    关键安全设计：**绝不修改 D:\CET6 里的任何生产文件**。
    整个变异过程在 os.tmpdir() 的临时副本上进行，结束删除副本。
 
-   首批 5 个变异体（对应 mutation-cases.md 的 #1/#2/#3/#4/#6）：
-     #5 描述「删掉 String(a)」与当前源码不符（dayDiff 本就直接 a.split），
-     已替换为 #6 addDays 月份偏移，注释里如实记录。
+   首批 5 个变异体（对应 mutation-cases.md 的 #1/#2/#3/#4/#6）曾发现 2 个存活。
+   2026-11-17 补齐剩余 10 个，达成 15/15 全部可复算。
+   文档里 4 处描述与当前源码不符，已按「等价可注入」原则如实更正在各自 name/note：
+     #5  文档说「删掉 String(a) 兜底」，但 dayDiff 本来就直接 a.split、压根没有兜底
+         → 改用「日期差符号反转」（同样由 test_core 的 dayDiff 断言抓住）
+     #7  文档说「<= 改 <」，源码实际是 `reviewMin + per > REVIEW_CAP`；直接改 `>=`
+         在 CAP=10 且单题耗时为小数时几乎不改变行为（等价变异）。更关键的是原测试
+         场景只有 3 道错题、封顶根本没触发 → 复算时 #7 存活。
+         故改为「上限翻倍」这个确实改变行为的变异，并给 test_core.js 补一条
+         「40 道到期错题必须真触发封顶」的场景断言（不是把存活个体悄悄删掉）。
+     #11 文档说「app/index.html 题库契约」，题库实际在 app/bank/*.js → 改注入首卷 answer
+     #14 文档说「<= today 改 < today」，源码是 dayDiff(due, dateStr) >= 0 → 改 > 0
+     #15 文档说「extraGroup 的 <= 4 改 <= 40」，源码无此常量（单元题数由题库分片决定）
+         → 改注入「extraGroup 返回超过 4 题」，由 journey_logic 的 ≤4 断言抓住
    用法：node test_mutation.js     产物：docs/mutation-result.json
    退出码：0 = 全部被杀，1 = 有存活/未生效
    ============================================================================ */
@@ -24,6 +35,11 @@ const { spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const DOCS = path.join(ROOT, 'docs');
 const APP_SRC = path.join(ROOT, 'app');
+
+// 版本串随发版递增，运行时动态读取，避免 CASES 写死导致下次发版就 NOT-APPLIED
+const VER = (/CET6_VERSION\s*=\s*'(cet6-v\d+)'/.exec(
+  fs.readFileSync(path.join(APP_SRC, 'version.js'), 'utf8')) || [])[1] || '';
+const VER_OLD = VER ? 'cet6-v' + (parseInt(VER.split('-v')[1], 10) - 1) : '';
 
 const CASES = [
   {
@@ -51,17 +67,77 @@ const CASES = [
     kill: ['retest_core.js']
   },
   {
+    id: 5, name: 'dayDiff 日期差符号反转（#5 等价替换）', file: 'app/core.js',
+    from: '    return Math.round((db - da) / 86400000);',
+    to: '    return Math.round((da - db) / 86400000);',
+    kill: ['test_core.js']
+  },
+  {
     id: 6, name: 'addDays 月份少减 1', file: 'app/core.js',
     from: 'var d = new Date(p[0], p[1] - 1, p[2] + n);',
     to: 'var d = new Date(p[0], p[1], p[2] + n);',
     kill: ['test_core.js']
+  },
+  {
+    id: 7, name: '复习封顶上限翻倍（#7 等价替换）', file: 'app/core.js',
+    from: 'if (reviewMin + per > CORE.REVIEW_CAP) return;',
+    to: 'if (reviewMin + per > CORE.REVIEW_CAP * 2) return;',
+    kill: ['test_core.js']
+  },
+  {
+    id: 8, name: '答错时不写回错题本', file: 'app/core.js',
+    from: 'var wb2 = state.wrongbook[qid] || (state.wrongbook[qid] = { addedAt: dateStr, box: 0, wrongCount: 0 });',
+    to: 'var wb2 = state.wrongbook[qid] || { addedAt: dateStr, box: 0, wrongCount: 0 };',
+    kill: ['test_journey_logic.js']
+  },
+  {
+    id: 9, name: 'isDate 直接放行假日期', file: 'app/core.js',
+    from: '    var isDate = function (v) {',
+    to: '    var isDate = function (v) { return true;',
+    kill: ['retest_core.js']
+  },
+  {
+    id: 10, name: '底线日 floor 不计入连击', file: 'app/core.js',
+    from: '      if (h && (h.done || h.floor)) { s++; d = CORE.addDays(d, -1); }',
+    to: '      if (h && h.done) { s++; d = CORE.addDays(d, -1); }',
+    kill: ['test_core.js', 'test_journey_logic.js']
+  },
+  {
+    id: 11, name: '题库首卷答案改为越界 Z', file: 'app/bank/cet6-2015-06-1.js',
+    from: '"answer": "C"',
+    to: '"answer": "Z"',
+    kill: ['test_bank_contract.js']
+  },
+  {
+    id: 12, name: 'SW 兜底版本号退回上一版', file: 'app/sw.js',
+    from: "var VERSION = self.CET6_VERSION || '" + VER + "';",
+    to: "var VERSION = self.CET6_VERSION || '" + VER_OLD + "';",
+    kill: ['test_version_sync.js']
+  },
+  {
+    id: 13, name: '浅色 --sub 降对比度', file: 'app/index.html',
+    from: '--sub:#5b6472;',
+    to: '--sub:#b0b0b0;',
+    kill: ['test_contrast_light.js']
+  },
+  {
+    id: 14, name: '到期错题漏掉当天（>= 改 >）', file: 'app/core.js',
+    from: '      if (CORE.dayDiff(wb.due, dateStr) >= 0) out.push(qid);',
+    to: '      if (CORE.dayDiff(wb.due, dateStr) > 0) out.push(qid);',
+    kill: ['test_journey_logic.js']
+  },
+  {
+    id: 15, name: '加练组返回超过 4 题（#15 等价替换）', file: 'app/core.js',
+    from: "      return { key: 'extra-' + type + '-' + Date.now(), type: type, qids: u.qids.slice(), paperId: u.paperId, label: u.label, done: false, minutes: 0, extra: true };",
+    to: "      return { key: 'extra-' + type + '-' + Date.now(), type: type, qids: u.qids.concat(u.qids).slice(0, 8), paperId: u.paperId, label: u.label, done: false, minutes: 0, extra: true };",
+    kill: ['test_journey_logic.js']
   }
 ];
 
 const R = {
   ts: new Date().toISOString(), method: '临时副本 + 单点源码替换 + 指定用例必须 FAIL',
   sandbox: 'os.tmpdir() 副本，生产目录零改动',
-  note: 'mutation-cases.md 的 #5 与当前源码不符（dayDiff 本就无 String(a) 防护），本轮用 #6 替代；其余 10 个变异体待补',
+  note: '15 个变异体全部纳入自动复算。#5/#7/#11/#14/#15 的文档描述与当前源码不符，按等价可注入原则更正（见文件头注释）；不以「文档写了就算」冒充通过。',
   baseline: [], cases: [], killed: 0, survived: 0, notApplied: 0, verdict: ''
 };
 

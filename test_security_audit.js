@@ -141,12 +141,13 @@ function goodState(extra) {
 
 /* ========================================================================== */
 (async () => {
+  let browser = null; // 提到 try 外：catch 里要能关掉它，否则中途报错会留下僵尸浏览器进程
   try {
   R.meta = { url: URL, browser: EXE, today: TODAY, node: process.version, startedAt: new Date().toISOString() };
   log('CET6 安全与健壮性审计  ' + R.meta.startedAt);
   log('页面：' + URL + '\n浏览器：' + EXE + '  今日：' + TODAY + '\n');
 
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     executablePath: EXE,
     args: ['--allow-file-access-from-files', '--no-sandbox', '--disable-dev-shm-usage'],
   });
@@ -1060,7 +1061,7 @@ function goodState(extra) {
   } catch (e) {
     log('\n‼ 审计脚本中断（已保留此前结果）：' + (e && e.stack ? e.stack : e));
     R.fatal = String((e && e.message) || e);
-    try { await browser.close(); } catch (e2) { }      // 必须关，否则 node 进程不退出、日志文件被占
+    try { if (browser) await browser.close(); } catch (e2) { }      // 必须关，否则 node 进程不退出、日志文件被占
   }
   if (!R.summary) R.summary = { interrupted: true, error: R.fatal || 'unknown' };
   // 中断必须表现为 FAIL + 非零退出码：否则"跑了但没验完"会被误当成通过

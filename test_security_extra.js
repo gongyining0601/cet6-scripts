@@ -63,10 +63,11 @@ function goodState(extra) {
 }
 
 (async () => {
+  let browser = null; // 提到 try 外：catch 里要能关掉它，否则中途报错会留下僵尸浏览器进程
   try {
     R.meta = { url: URL, browser: EXE, today: TODAY, startedAt: new Date().toISOString() };
     log('CET6 安全审计 · 补充用例  ' + R.meta.startedAt);
-    const browser = await chromium.launch({ executablePath: EXE, args: ['--allow-file-access-from-files', '--no-sandbox', '--disable-dev-shm-usage'] });
+    browser = await chromium.launch({ executablePath: EXE, args: ['--allow-file-access-from-files', '--no-sandbox', '--disable-dev-shm-usage'] });
 
     /* 取真实 qid */
     const { ctx: c0, page: p0 } = await newCtx(browser);
@@ -334,7 +335,7 @@ function goodState(extra) {
   } catch (e) {
     log('‼ 补充用例中断：' + (e && e.stack ? e.stack : e));
     R.fatal = String((e && e.message) || e);
-    try { await browser.close(); } catch (e2) { }
+    try { if (browser) await browser.close(); } catch (e2) { }
   }
   // 中断必须表现为 FAIL + 非零退出码，否则"没跑完"会被误当成通过
   if (R.fatal) { log('FAIL 脚本中断：' + R.fatal); process.exitCode = 1; }

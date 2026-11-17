@@ -9,11 +9,19 @@
     "test:audit": "node test_release_audit.js",
     "test:offline": "node test_offline_https.js",
     "test:perf": "node test_offline_perf.js",
+    "lint": "node lint_all.js",
+    "stress:sync": "node test_stress_sync.js",
+    "stress:frontend": "node test_stress_frontend.js",
     "certs": "node gen_certs.js"
   },
   "dependencies": {
     "node-forge": "^1.3.1",
     "playwright": "^1.63.0",
     "playwright-core": "^1.63.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0"
   }
 }
