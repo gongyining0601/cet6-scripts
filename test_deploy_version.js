@@ -29,11 +29,25 @@ function versionOf(text) {
 }
 
 // 用 curl 而非 Node https：deploy_pages.js 已验证这条通道在本机代理下可用，
-// 带 cb 参数绕开 CDN 缓存，超时 15s 不让回归卡死。
+// 带 cb 参数绕开 CDN 缓存。2026-11-17 加固：本用例是**必过项**，一次 curl 超时
+// 就误挡 GATE 太脆（同轮 verify_deploy.js 38/38 全过，说明是公网瞬态而非部署滞后）。
+// 与 verify_deploy.js 同口径：最多 5 次、每次 25s、-f 拒绝 404 页面、间隔 2s。
+// 关键：只要拿到**可解析的版本串**就立刻返回，版本是否一致仍由后面断言判定，
+// 重试只针对网络失败/解析失败，绝不把「真滞后」重试成通过。
 function onlineVersion() {
-  const out = cp.execFileSync('curl', ['-sS', '-m', '15', PAGES_VERSION + '?cb=' + Date.now()],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  return versionOf(out);
+  let lastErr = '';
+  for (let i = 1; i <= 5; i++) {
+    try {
+      const out = cp.execFileSync('curl',
+        ['-sS', '-f', '-m', '25', PAGES_VERSION + '?cb=' + Date.now() + '-' + i],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      const v = versionOf(out);
+      if (v) return v;
+      lastErr = '线上响应里没有可解析的版本串';
+    } catch (e) { lastErr = (e.message || String(e)).split('\n')[0].slice(0, 160); }
+    if (i < 5) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  }
+  throw new Error(lastErr + '（已重试 5 次）');
 }
 
 (async () => {
