@@ -88,7 +88,12 @@ const TEST_INFRA = [
   'scripts/test_e2e.js',
   'scripts/test_e2e_ui.js',
   'scripts/test_security_audit.js',
-  'scripts/test_release_audit.js'
+  'scripts/test_release_audit.js',
+  'scripts/test_coverage.js',
+  'scripts/test_mutation.js',
+  'scripts/test_journey_logic.js',
+  'scripts/test_bank_contract.js',
+  'scripts/test_contrast_light.js'
 ];
 const roots = PEER_OK ? [ROOT, PEER] : [ROOT];
 TEST_INFRA.forEach(function (rel) {
@@ -118,6 +123,7 @@ const FIXES = [
   { n: 'gen_meta 调共享版本递增', f: 'scripts/gen_meta.js', re: /bump_version\.js/ },
   { n: '回归含同步用例', f: 'scripts/run_all.js', re: /test_sync\.js/ },
   { n: '回归含真实 UI E2E（防假 E2E 回潮）', f: 'scripts/run_all.js', re: /test_e2e_ui\.js/ },
+  { n: '回归含覆盖率门禁', f: 'scripts/run_all.js', re: /test_coverage\.js/ },
   { n: '回归含版本/外壳闸门', f: 'scripts/run_all.js', re: /test_version_sync\.js/ },
   { n: '回归含分叉闸门', f: 'scripts/run_all.js', re: /check_divergence\.js/ }
 ];
