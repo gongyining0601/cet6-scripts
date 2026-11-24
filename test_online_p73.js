@@ -1,3 +1,7 @@
+/* 2026-11-24 退役：本脚本是"只打印不断言"的老探针，且前提已被按需加载架构摧毁——
+   首屏不会自动载 76 卷（p72 等 76 卷必超时；p71 取 questions 直接抛错）。
+   它要验的事本地已有更强断言覆盖；真实 https 链路由 test_online.js 承担。
+   文件保留作历史证据，已移出 run_all 回归清单。 */
 /* P7.3 线上冒烟：登录层 → 手机号登录 → 今日清单 → 考点表 → 积极文案 */
 const path = require('path');
 const { chromium: loadChromium, EXE } = require('./_env');

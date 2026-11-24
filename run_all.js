@@ -16,12 +16,15 @@
      node run_all.js --only=security     # 文件名含 security
      node run_all.js --timeout=600000    # 单个用例超时（毫秒），默认 480000
      node run_all.js --list              # 只列清单不执行
+     node run_all.js --require-version=cet6-v36    # 版本不符则 exit 4，产物不冒充该版本
 
-   产物：docs/run-all-result.json
+   产物：docs/run-all-result.json —— 含 meta.version / meta.hashes / meta.gitHead，
+        让"一份回归证据"绑定当时被测的代码版本；发布前用 --require-version 校验。
    ============================================================================ */
 require('./_io_patch'); // 预加载 writeFileSync 重试补丁（本机 Windows 文件锁）
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 /* 注意：**不要用 spawnSync**。本机环境下 spawnSync 一律以 EBUSY 立即失败
    （与 timeout/cwd/encoding/maxBuffer 参数无关，异步 spawn 正常），
@@ -61,12 +64,15 @@ const TESTS = [
   { f: 'test_version_sync.js', g: 'core', min: 3, d: '三方版本号一致性' },
   { f: 'check_divergence.js', g: 'core', min: 20, d: '双项目防漏修：共享内核字节一致 + 修复点清单' },
   { f: 'test_contrast_light.js', g: 'core', min: 3, d: '浅色主题对比度 ≥4.5:1' },
+  { f: 'test_mutation.js', g: 'core', min: 12, d: '变异测试：15 个变异体必须全被杀（存活即断言不足）' },
   { f: 'test_coverage.js', g: 'core', min: 2, d: 'core.js 覆盖率门禁（行/分支 ≥80%，排除 bank）' },
   { f: 'test_id_isolation.js', g: 'core', min: 3, d: '4 位学习编号隔离风险声明 + 存储键隔离' },
   { f: 'test_sync.js', g: 'core', min: 30, d: '私有同步（共享内核）：合并算法 + 端点并发/恢复闭环' },
 
   /* --- 浏览器：功能与交互 --- */
   { f: 'test_e2e_ui.js', g: 'browser', min: 30, d: '真实 E2E（Playwright 驱动 UI：登录→做题→错题→统计→备份→导出导入）' },
+  { f: 'test_mobile.js', g: 'browser', min: 6, d: '移动端模拟（375/390/414 视口做题链路；真机仍未实测）' },
+  { f: 'test_a11y.js', g: 'browser', min: 3, d: '无障碍取证：34 个交互控件访问名/alt/landmark/键盘可达' },
   { f: 'test_ui.js', g: 'browser', min: 8, d: 'UI 结构与选择流程' },
   { f: 'test_p3.js', g: 'browser', min: 8, d: 'P3 轮修复点' },
   { f: 'test_p4.js', g: 'browser', min: 8, d: 'P4 轮修复点' },
@@ -101,10 +107,7 @@ const TESTS = [
   // 只查版本号挡不住「version.js 更新了、index.html/core.js/题库仍是旧的」，
   // 故加一道逐字节内容比对，含 app HEAD 树核对与 404 页面识别
   { f: 'verify_deploy.js', g: 'net', min: 30, d: '线上文件内容逐字节一致（必过，防半吊子部署）' },
-  { f: 'test_online.js', g: 'net', min: 1, d: '在线环境', opt: 1 },
-  { f: 'test_online_p71.js', g: 'net', min: 1, d: '在线 P7-1', opt: 1 },
-  { f: 'test_online_p72.js', g: 'net', min: 1, d: '在线 P7-2', opt: 1 },
-  { f: 'test_online_p73.js', g: 'net', min: 1, d: '在线 P7-3', opt: 1 },
+  { f: 'test_online.js', g: 'net', min: 1, d: '在线冒烟（登录→清单→进组→判分→版本比对）', opt: 1 },
   { f: 'test_offline_https.js', g: 'net', min: 1, d: 'HTTPS/离线' },
   { f: 'test_offline_perf.js', g: 'net', min: 1, d: '离线性能' },
   { f: 'test_firefox_playwright.js', g: 'net', min: 1, d: 'Firefox 兼容', opt: 1 },
@@ -143,6 +146,57 @@ const ONLY = argOf('only');
 const SKIP = new Set((argOf('skip') || '').split(',').map(s => s.trim()).filter(Boolean));
 const TIMEOUT = Number(argOf('timeout') || 480000);
 const LIST_ONLY = argv.includes('--list');
+
+/* ------------------------------ 发布证据绑定 ------------------------------
+   结果 JSON 必须能回答"这是哪个版本、哪份代码跑出来的"。
+   无 git 也能跑：gitHead 记 null，version/hashes 仍绑定，不因环境缺 git 就假绿。 */
+const REQUIRE_VERSION = argOf('require-version');
+function gitHeadOf(dir) {
+  try {
+    const out = require('child_process').execFileSync('git', ['rev-parse', 'HEAD'],
+      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 });
+    return String(out).trim() || null;
+  } catch (e) { return null; }
+}
+function readVersion() {
+  try {
+    const s = fs.readFileSync(path.join(ROOT, 'app', 'version.js'), 'utf8');
+    const m = /(?:CET4|CET6)_VERSION\s*=\s*['"]([^'"]+)['"]/.exec(s);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+function fileHash(rel) {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, rel))).digest('hex');
+  } catch (e) { return null; }
+}
+const FINGERPRINT_FILES = [
+  'app/version.js', 'app/index.html', 'app/core.js', 'app/sw.js',
+  'app/sync.js', 'app/sync-config.js', 'scripts/sync-server.js',
+  'scripts/run_all.js', 'scripts/check_divergence.js'
+];
+function collectMeta() {
+  const hashes = {};
+  FINGERPRINT_FILES.forEach(function (rel) { hashes[rel] = fileHash(rel); });
+  return {
+    version: readVersion(),
+    hashes: hashes,
+    gitHead: {
+      root: gitHeadOf(ROOT),
+      app: gitHeadOf(path.join(ROOT, 'app')),
+      scripts: gitHeadOf(path.join(SCRIPTS)),
+    },
+    capturedAt: new Date().toISOString(),
+  };
+}
+const META = collectMeta();
+
+// 版本不符：exit 4，并在写 JSON 之前就挡住，避免产物冒充目标版本。
+if (REQUIRE_VERSION && META.version !== REQUIRE_VERSION) {
+  console.error('版本不符：当前 app/version.js = ' + (META.version || '(读取失败)') +
+    '，要求 --require-version=' + REQUIRE_VERSION + '。拒绝运行并拒绝写产物。');
+  process.exit(4);
+}
 
 const picked = TESTS.filter(t => {
   if (GROUP !== 'all' && t.g !== GROUP) return false;
@@ -243,9 +297,13 @@ function runOne(t) {
     const total = ok + fail;
 
     const effMin = minFor(t);
+    // 环境跳过：用例自己显式打印 ENV-SKIP（如线上站点未部署、浏览器构建缺失）。
+    // 记为 SKIP：不算通过、不算假绿、不算必过失败，总计单列原因。
+    const envSkip = /ENV-SKIP[:：]/.test(r.out);
     let verdict;
     if (r.timedOut) verdict = 'TIMEOUT';
     else if (r.code === null) verdict = 'CRASH';
+    else if (envSkip) verdict = 'SKIP';
     else if (t.kind === 'dump') {
       verdict = (r.code === 0 && r.out.trim().length >= 200) ? 'DUMP-OK' : 'DUMP-FAIL';
     }
@@ -259,6 +317,7 @@ function runOne(t) {
     rows.push({
       file: t.f, group: t.g, desc: t.d, optional: !!t.opt,
       verdict: verdict, pass: pass,
+      reason: verdict === 'SKIP' ? (r.out.split(/\r?\n/).find(l => /ENV-SKIP[:：]/.test(l)) || '').trim() : undefined,
       exit: r.code, ms: r.ms, ok, fail, total, min: effMin,
       tail: r.out.split(/\r?\n/).filter(l => l.trim()).slice(-8).join(' ⏎ ').slice(0, 800),
     });
@@ -282,13 +341,15 @@ function runOne(t) {
   const totalAssert = rows.reduce((a, r) => a + r.total, 0);
   const totalOk = rows.reduce((a, r) => a + r.ok, 0);
   const totalFail = rows.reduce((a, r) => a + r.fail, 0);
-  const hard = rows.filter(r => !r.pass && !r.optional);
+  const hard = rows.filter(r => !r.pass && !r.optional && r.verdict !== 'SKIP');
+  const skippedEnv = rows.filter(r => r.verdict === 'SKIP');
   // B4：假绿/缩水判定排除 optional 用例（在线/离线条件性用例失败不应污染假绿计数）
   const fake = rows.filter(r => !r.optional && (r.verdict === 'NO-ASSERT' || r.verdict === 'SHRUNK'));
   const passed = rows.filter(r => r.pass).length;
 
   console.log('\n================= 总计 =================');
-  console.log('  用例 ' + rows.length + ' 个：' + passed + ' 通过 / ' + (rows.length - passed) + ' 未通过');
+  console.log('  用例 ' + rows.length + ' 个：' + passed + ' 通过 / ' + (rows.length - passed - skippedEnv.length) + ' 未通过 / ' + skippedEnv.length + ' 环境跳过');
+  if (skippedEnv.length) skippedEnv.forEach(r => console.log('    环境跳过: ' + r.file + ' — ' + String(r.reason || '').slice(0, 120)));
   console.log('  断言 ' + totalAssert + ' 条：' + totalOk + ' ok / ' + totalFail + ' fail');
   console.log('  假绿/缩水（0 断言或低于下限却"通过"）' + fake.length + ' 个' + (fake.length ? ' → ' + fake.map(r => r.file + '(' + r.verdict + ')').join(', ') : ''));
   console.log('  必过项未通过 ' + hard.length + ' 个' + (hard.length ? ' → ' + hard.map(r => r.file + '(' + r.verdict + ')').join(', ') : ''));
@@ -297,9 +358,10 @@ function runOne(t) {
   try {
     fs.writeFileSync(path.join(DOCS, 'run-all-result.json'), JSON.stringify({
       ts: new Date().toISOString(), group: GROUP, only: ONLY || null, skipped: SKIPPED, timeoutMs: TIMEOUT,
+      meta: META,
       totals: {
         cases: rows.length, pass: passed, assertions: totalAssert, ok: totalOk, fail: totalFail,
-        fakeGreen: fake.length, hardFailed: hard.length,
+        fakeGreen: fake.length, hardFailed: hard.length, envSkipped: skippedEnv.length,
       },
       rows,
     }, null, 2), 'utf8');

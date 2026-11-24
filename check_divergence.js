@@ -85,7 +85,6 @@ const TEST_INFRA = [
   'scripts/test_core.js',
   'scripts/test_sync.js',
   'scripts/test_version_sync.js',
-  'scripts/test_e2e.js',
   'scripts/test_e2e_ui.js',
   'scripts/test_security_audit.js',
   'scripts/test_release_audit.js',
